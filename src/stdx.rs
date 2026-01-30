@@ -24,16 +24,27 @@ pub mod fs {
   use std::path::{Path, PathBuf};
   use std::{fs, io, io::prelude::*};
 
-  pub fn hash(path: &Path) -> io::Result<u64> {
+  pub const BUF_SIZE_FAST: usize = 1 << 12; //  4 KiB
+  pub const BUF_SIZE_SLOW: usize = 1 << 16; // 64 KiB
+
+  pub fn hash(path: &Path, steps: usize) -> io::Result<u64> {
     let mut file = File::open(path)?;
     let mut hasher = DefaultHasher::new();
-    let mut buffer = [0; 1 << 16];
-    loop {
-      match file.read(&mut buffer)? {
-        0 => break Ok(hasher.finish()),
+    let mut buffer = [0; BUF_SIZE_SLOW];
+
+    let buffer = match steps {
+      1 => &mut buffer[..BUF_SIZE_FAST],
+      _ => &mut buffer,
+    };
+
+    for _ in 0..steps {
+      match file.read(buffer)? {
+        0 => break,
         n => hasher.write(&buffer[..n]),
       }
     }
+
+    Ok(hasher.finish())
   }
 
   pub fn scan<F>(cwd: &Path, f: &mut F) -> io::Result<()>
