@@ -1,0 +1,21 @@
+[package]
+name = "dupfinder"
+version = "0.1.0"
+edition = "2024"
+
+[profile.release]
+debug = false
+strip = true
+
+[profile.release-lto]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+
+[profile.profiling]
+inherits = "release-lto"
+debug = true
+strip = false
+
+[dependencies]
+crossbeam-channel = "*"
