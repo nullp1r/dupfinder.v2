@@ -1,5 +1,5 @@
 use std::collections::hash_map::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 use std::usize;
 use std::{env, io, io::prelude::*, mem, thread};
@@ -12,8 +12,8 @@ mod stdx;
 
 type Hash = [u64; 2];
 type Counts = HashMap<Hash, u64>;
-type Hashes = Vec<(PathBuf, Hash)>;
-type Errors = Vec<(PathBuf, io::Error)>;
+type Hashes = Vec<(Box<Path>, Hash)>;
+type Errors = Vec<(Box<Path>, io::Error)>;
 
 mod bits {
   pub const HASH_FAST: u64 = 0b10 << 62;
@@ -47,10 +47,9 @@ fn scan(mut w: impl Write, errors: &mut Errors, sizes: &mut Hashes, root: &Path)
   write!(w, "files found: \x1b[s\x1b[?25l")?; // save and hide cursor
   let mut total = 0;
   fs::scan(root, &mut |cwd, res| {
-    match res.and_then(|(path, file)| Ok((path, file.metadata()?))) {
-      Err(err) => errors.push((cwd.into(), err)),
-      Ok((path, meta)) => {
-        let size = meta.len();
+    match res.and_then(|(path, file)| Ok((path.into_boxed_path(), file.metadata()?.len()))) {
+      Err(err) => errors.push((cwd.to_owned().into_boxed_path(), err)),
+      Ok((path, size)) => {
         total += size;
         sizes.push((path, [0, size]));
         write!(w, "\x1b[u\x1b[93m{}\x1b[39m \x1b[2m({})\x1b[22m\x1b[K", sizes.len(), fmt::Size(total))?;
@@ -83,7 +82,7 @@ fn filter_and_count(mut w: impl Write, inputs: &mut Hashes, hashes: &mut Hashes,
   Ok(())
 }
 
-fn count(inputs: impl IntoIterator<Item = (PathBuf, Hash)>, hashes: &mut Hashes, hash_counts: &mut Counts) {
+fn count(inputs: impl IntoIterator<Item = (Box<Path>, Hash)>, hashes: &mut Hashes, hash_counts: &mut Counts) {
   for (path, hash) in inputs {
     hashes.push((path, hash));
     *hash_counts.entry(hash).or_default() += 1;
@@ -94,8 +93,8 @@ fn compute_hashes(mut w: impl Write, errors: &mut Errors, hashes: &mut Hashes, s
   let 1.. = hashes.len() else { return Ok(Duration::new(0, 1)) };
 
   let threads = thread::available_parallelism()?.get();
-  let (inputs_tx, inputs_rx) = channel::bounded::<(PathBuf, Hash)>(threads << 8);
-  let (outputs_tx, outputs_rx) = channel::bounded::<(PathBuf, io::Result<Hash>)>(threads << 8);
+  let (inputs_tx, inputs_rx) = channel::bounded::<(Box<Path>, Hash)>(threads << 8);
+  let (outputs_tx, outputs_rx) = channel::bounded::<(Box<Path>, io::Result<Hash>)>(threads << 8);
 
   let (hash_bit, hash_type) = match steps {
     1 => (bits::HASH_FAST, "fast"),
@@ -178,7 +177,7 @@ fn show_duplicates(mut w: impl Write, hashes: Hashes, root: &Path) -> io::Result
     writeln!(w)?;
     writeln!(w, "{hash}{0}{count}{0}{each}{0}{dup}", " \x1b[2m·\x1b[22m ")?;
 
-    let cmp = |a: &PathBuf, b: &PathBuf| {
+    let cmp = |a: &Box<Path>, b: &Box<Path>| {
       let [ac, bc] = [a, b].map(|p| p.components().count()); // by component count
       let [an, bn] = [a, b].map(|p| p.as_os_str().len()); // then by length
       ac.cmp(&bc).then(an.cmp(&bn)).then(a.cmp(b)) // then lexicographically
