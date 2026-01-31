@@ -10,11 +10,12 @@ use self::stdx::{ansi, fmt, fs};
 
 mod stdx;
 
-type Hash = [u64; 2]; // [file hash, file size and bitflags]
+type Sig = [u64; 2]; // [meta bits | file size, file hash]
+type Sigs = Vec<(Box<Path>, Sig)>;
+type SigCount = HashMap<Sig, u64>;
 
-type Counts = HashMap<Hash, u64>;
-type Hashes = Vec<(Box<Path>, Hash)>;
-type Errors = Vec<(Box<Path>, bool, io::Error)>; // `true` if full path
+type IsFullPath = bool;
+type Errors = Vec<(Box<Path>, IsFullPath, io::Error)>;
 
 mod bits {
   pub const HASH_FAST: u64 = 0b10 << 62;
@@ -29,39 +30,38 @@ fn main() -> io::Result<()> {
   let path = env::args_os().nth(1).unwrap_or_else(|| ".".into());
   let path = Path::new(&path);
   let mut w = io::stdout().lock();
-  let (mut errors, mut inputs, mut hashes, mut counts) = Default::default();
+  let (mut errs, mut inputs, mut sigs, mut sig_count) = Default::default();
 
-  scan(&mut w, &mut errors, &mut inputs, path)?;
-  filter_and_count(&mut w, &mut inputs, &mut hashes, &mut counts)?;
+  scan(&mut w, &mut errs, &mut inputs, path)?;
+  filter_and_count(&mut w, &mut inputs, &mut sigs, &mut sig_count)?;
 
-  let fast = compute_hashes(&mut w, &mut errors, &mut inputs, 1)?;
-  filter_and_count(&mut w, &mut inputs, &mut hashes, &mut counts)?;
+  let fast = compute_hashes(&mut w, &mut errs, &mut inputs, 1)?;
+  filter_and_count(&mut w, &mut inputs, &mut sigs, &mut sig_count)?;
 
-  let slow = compute_hashes(&mut w, &mut errors, &mut inputs, usize::MAX)?;
-  count(inputs, &mut hashes, &mut counts);
+  let slow = compute_hashes(&mut w, &mut errs, &mut inputs, usize::MAX)?;
+  count(inputs, &mut sigs, &mut sig_count);
 
-  show_duplicates(&mut w, hashes, path)?;
-  show_errors(&mut w, errors, path)?;
-  show_summary(&mut w, counts, [fast, slow])
+  show_duplicates(&mut w, sigs, path)?;
+  show_errors(&mut w, errs, path)?;
+  show_summary(&mut w, sig_count, [fast, slow])
 }
 
-fn scan(mut w: impl Write, errors: &mut Errors, sizes: &mut Hashes, root: &Path) -> io::Result<()> {
+fn scan(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, root: &Path) -> io::Result<()> {
   writeln!(w, "scanning file system…")?;
   write!(w, "files found: \x1b[s\x1b[?25l")?; // save and hide cursor
   let mut total = 0;
-
   fs::scan(root, &mut |cwd, r| {
     let r = r.map_err(|err| (cwd.to_owned().into_boxed_path(), false, err));
     let r = r.and_then(|(path, file)| match file.metadata() {
       Err(err) => Err((path.into_boxed_path(), true, err)),
-      Ok(meta) => Ok((path, meta.len())),
+      Ok(meta) => Ok((path, meta)),
     });
     match r {
-      Err(err) => errors.push(err),
-      Ok((path, size)) => {
-        total += size;
-        sizes.push((path.into_boxed_path(), [0, size]));
-        write!(w, "\x1b[u\x1b[93m{}\x1b[39m \x1b[2m({})\x1b[22m\x1b[K", sizes.len(), fmt::Size(total))?;
+      Err(err) => errs.push(err),
+      Ok((path, meta)) => {
+        total += meta.len();
+        sigs.push((path.into_boxed_path(), [meta.len(), 0]));
+        write!(w, "\x1b[u\x1b[93m{}\x1b[39m \x1b[2m({})\x1b[22m\x1b[K", sigs.len(), fmt::Size(total))?;
       }
     };
     Ok(())
@@ -69,19 +69,19 @@ fn scan(mut w: impl Write, errors: &mut Errors, sizes: &mut Hashes, root: &Path)
   writeln!(w, "\x1b[?25h")
 }
 
-fn filter_and_count(mut w: impl Write, inputs: &mut Hashes, hashes: &mut Hashes, hash_counts: &mut Counts) -> io::Result<()> {
-  let counts = inputs.iter().fold(Counts::default(), |mut acc, &(_, hash)| {
-    *acc.entry(hash).or_default() += 1;
+fn filter_and_count(mut w: impl Write, inputs: &mut Sigs, sigs: &mut Sigs, sig_count: &mut SigCount) -> io::Result<()> {
+  let inputs_sig_count = inputs.iter().fold(SigCount::default(), |mut acc, &(_, sig)| {
+    *acc.entry(sig).or_default() += 1;
     acc
   });
 
   let total = inputs.len();
-  let skip = inputs.extract_if(.., |&mut (_, hash @ [_, bits])| {
-    let empty = bits & bits::SIZE == 0;
-    let unique = counts.get(&hash).is_some_and(|&n| n < 2);
+  let skip = inputs.extract_if(.., |&mut (_, sig @ [meta, _])| {
+    let empty = meta & bits::SIZE == 0;
+    let unique = inputs_sig_count.get(&sig).is_some_and(|&n| n < 2);
     empty || unique
   });
-  count(skip, hashes, hash_counts);
+  count(skip, sigs, sig_count);
 
   if let n @ 1.. = total - inputs.len() {
     writeln!(w)?;
@@ -91,21 +91,21 @@ fn filter_and_count(mut w: impl Write, inputs: &mut Hashes, hashes: &mut Hashes,
   Ok(())
 }
 
-fn count(inputs: impl IntoIterator<Item = (Box<Path>, Hash)>, hashes: &mut Hashes, hash_counts: &mut Counts) {
-  for (path, hash) in inputs {
-    hashes.push((path, hash));
-    *hash_counts.entry(hash).or_default() += 1;
+fn count(inputs: impl IntoIterator<Item = (Box<Path>, Sig)>, sigs: &mut Sigs, sig_count: &mut SigCount) {
+  for (path, sig) in inputs {
+    sigs.push((path, sig));
+    *sig_count.entry(sig).or_default() += 1;
   }
 }
 
-fn compute_hashes(mut w: impl Write, errors: &mut Errors, hashes: &mut Hashes, steps: usize) -> io::Result<Duration> {
-  let 1.. = hashes.len() else { return Ok(Default::default()) };
+fn compute_hashes(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, steps: usize) -> io::Result<Duration> {
+  let 1.. = sigs.len() else { return Ok(Default::default()) };
 
   let threads = thread::available_parallelism()?.get();
-  let (inputs_tx, inputs_rx) = channel::bounded::<(Box<Path>, Hash)>(threads << 8);
-  let (outputs_tx, outputs_rx) = channel::bounded::<(Box<Path>, io::Result<Hash>)>(threads << 8);
+  let (inputs_tx, inputs_rx) = channel::bounded::<(Box<Path>, Sig)>(threads << 8);
+  let (outputs_tx, outputs_rx) = channel::bounded::<(Box<Path>, io::Result<Sig>)>(threads << 8);
 
-  let (hash_bit, hash_type) = match steps {
+  let (hash_type, hash) = match steps {
     1 => (bits::HASH_FAST, "fast"),
     _ => (bits::HASH_SLOW, "slow"),
   };
@@ -115,12 +115,12 @@ fn compute_hashes(mut w: impl Write, errors: &mut Errors, hashes: &mut Hashes, s
     let inputs_rx = inputs_rx.clone();
     let outputs_tx = outputs_tx.clone();
     thread::spawn(move || {
-      for (path, [_, bits]) in inputs_rx {
-        let hash = match fs::hash(&path, steps) {
-          Ok(hash) => Ok([hash, hash_bit | bits]),
+      for (path, [meta, _]) in inputs_rx {
+        let sig = match fs::hash(&path, steps) {
+          Ok(hash) => Ok([meta | hash_type, hash]),
           Err(err) => Err(err),
         };
-        let _ = outputs_tx.send((path, hash));
+        let _ = outputs_tx.send((path, sig));
       }
     });
   }
@@ -129,25 +129,25 @@ fn compute_hashes(mut w: impl Write, errors: &mut Errors, hashes: &mut Hashes, s
   drop(outputs_tx);
 
   // producer
-  let inputs = mem::take(hashes);
+  let inputs = mem::take(sigs);
   let count = inputs.len();
   thread::spawn(move || {
-    for (path, hash) in inputs {
-      let _ = inputs_tx.send((path, hash));
+    for input in inputs {
+      let _ = inputs_tx.send(input);
     }
   });
 
   // consumer
   writeln!(w)?;
-  writeln!(w, "computing \x1b[93m{count}\x1b[39m {hash_type} hashes… \x1b[2m({threads} threads)\x1b[22m")?;
+  writeln!(w, "computing \x1b[93m{count}\x1b[39m {hash} hashes… \x1b[2m({threads} threads)\x1b[22m")?;
   write!(w, "computed: \x1b[93m\x1b[s\x1b[?25l")?; // save and hide cursor
   let t0 = Instant::now();
-  for (path, hash) in outputs_rx {
-    match hash {
-      Err(err) => errors.push((path, true, err)),
-      Ok(hash) => {
-        hashes.push((path, hash));
-        write!(w, "\x1b[u{}\x1b[K", hashes.len())?;
+  for (path, sig) in outputs_rx {
+    match sig {
+      Err(err) => errs.push((path, true, err)),
+      Ok(sig) => {
+        sigs.push((path, sig));
+        write!(w, "\x1b[u{}\x1b[K", sigs.len())?;
       }
     };
   }
@@ -157,24 +157,24 @@ fn compute_hashes(mut w: impl Write, errors: &mut Errors, hashes: &mut Hashes, s
   Ok(t1 - t0)
 }
 
-fn show_duplicates(mut w: impl Write, hashes: Hashes, root: &Path) -> io::Result<()> {
+fn show_duplicates(mut w: impl Write, sigs: Sigs, root: &Path) -> io::Result<()> {
   let mut path_groups = HashMap::<_, Vec<_>>::default();
-  for (path, hash) in hashes {
-    path_groups.entry(hash).or_default().push(path);
+  for (path, sig) in sigs {
+    path_groups.entry(sig).or_default().push(path);
   }
 
   let mut path_groups = Vec::from_iter(path_groups);
-  path_groups.sort_unstable_by(|([_, bits0], pg0), ([_, bits1], pg1)| {
-    let a = (pg0.len() as u64 - 1) * (bits0 & bits::SIZE);
-    let b = (pg1.len() as u64 - 1) * (bits1 & bits::SIZE);
+  path_groups.sort_unstable_by(|([meta0, _], group0), ([meta1, _], group1)| {
+    let a = (group0.len() as u64 - 1) * (meta0 & bits::SIZE);
+    let b = (group1.len() as u64 - 1) * (meta1 & bits::SIZE);
     a.cmp(&b) // by total duplicated bytes
   });
 
-  for ([hash, bits], mut paths) in path_groups {
-    let len @ 2.. = paths.len() else { continue };
+  for ([meta, hash], mut group) in path_groups {
+    let len @ 2.. = group.len() else { continue };
     let mid = len.min(3);
 
-    let size = bits & bits::SIZE;
+    let size = meta & bits::SIZE;
     let each = fmt::Size(size);
     let dup = fmt::Size(size * (len as u64 - 1));
 
@@ -193,9 +193,9 @@ fn show_duplicates(mut w: impl Write, hashes: Hashes, root: &Path) -> io::Result
     };
 
     let (show, hide) = {
-      let (slice, _, _) = paths.select_nth_unstable_by(mid - 1, cmp);
+      let (slice, _, _) = group.select_nth_unstable_by(mid - 1, cmp);
       slice.sort_unstable_by(cmp);
-      paths.split_at(mid)
+      group.split_at(mid)
     };
 
     for (i, path) in show.iter().enumerate() {
@@ -214,16 +214,16 @@ fn show_duplicates(mut w: impl Write, hashes: Hashes, root: &Path) -> io::Result
   Ok(())
 }
 
-fn show_errors(mut w: impl Write, mut errors: Errors, root: &Path) -> io::Result<()> {
-  let 1.. = errors.len() else { return Ok(()) };
+fn show_errors(mut w: impl Write, mut errs: Errors, root: &Path) -> io::Result<()> {
+  let 1.. = errs.len() else { return Ok(()) };
 
-  errors.sort_unstable_by(|(p0, _, e0), (p1, _, e1)| {
+  errs.sort_unstable_by(|(p0, _, e0), (p1, _, e1)| {
     let a = (e0.kind(), e0.raw_os_error(), p0);
     let b = (e1.kind(), e1.raw_os_error(), p1);
     a.cmp(&b) // by error kind, by OS error code, lexicographically by path
   });
 
-  let groups = errors.chunk_by(|(_, _, e0), (_, _, e1)| {
+  let groups = errs.chunk_by(|(_, _, e0), (_, _, e1)| {
     let a = (e0.kind(), e0.raw_os_error());
     let b = (e1.kind(), e1.raw_os_error());
     a == b // group by error kind and OS error code
@@ -251,27 +251,27 @@ fn show_errors(mut w: impl Write, mut errors: Errors, root: &Path) -> io::Result
   Ok(())
 }
 
-fn show_summary(mut w: impl Write, counts: Counts, [fast_t, slow_t]: [Duration; 2]) -> io::Result<()> {
+fn show_summary(mut w: impl Write, sig_count: SigCount, [fast_t, slow_t]: [Duration; 2]) -> io::Result<()> {
   let (mut total_n, mut skipped_n, mut fast_n, mut slow_n, mut dup_n) = (0, 0, 0, 0, 0);
   let (mut total, mut skipped, mut fast, mut slow, mut dup) = (0, 0, 0, 0, 0);
 
-  for ([_, bits], count) in counts {
-    let size = bits & bits::SIZE;
+  for ([meta, _], count) in sig_count {
+    let size = meta & bits::SIZE;
     total_n += count;
     total += count * size;
     if count > 1 {
       dup_n += count - 1;
       dup += (count - 1) * size;
     }
-    if bits & bits::HASH == 0 {
+    if meta & bits::HASH == 0 {
       skipped_n += count;
       skipped += count * size;
     }
-    if bits & bits::HASH_FAST != 0 {
+    if meta & bits::HASH_FAST != 0 {
       fast_n += count;
       fast += count * fs::BUF_SIZE_FAST as u64;
     }
-    if bits & bits::HASH_SLOW != 0 {
+    if meta & bits::HASH_SLOW != 0 {
       slow_n += count;
       slow += count * size;
     }
