@@ -70,3 +70,39 @@ pub mod fs {
     Ok(())
   }
 }
+
+pub mod ansi {
+  use std::io;
+
+  #[cfg(not(windows))]
+  pub fn enable() -> io::Result<()> {
+    Ok(())
+  }
+
+  #[cfg(windows)]
+  pub fn enable() -> io::Result<()> {
+    use std::ffi::c_void;
+    use std::num::NonZeroI32;
+    use std::os::windows::io::AsRawHandle;
+
+    unsafe extern "system" {
+      fn GetConsoleMode(h: *mut c_void, mode: *mut u32) -> i32;
+      fn SetConsoleMode(h: *mut c_void, mode: u32) -> i32;
+    }
+
+    let handle = io::stdout().as_raw_handle();
+    let mut mode = 0;
+
+    unsafe {
+      let Some(_) = NonZeroI32::new(GetConsoleMode(handle, &mut mode)) else {
+        return Err(io::Error::last_os_error());
+      };
+
+      let Some(_) = NonZeroI32::new(SetConsoleMode(handle, mode | 0x0004)) else {
+        return Err(io::Error::last_os_error());
+      };
+    }
+
+    Ok(())
+  }
+}

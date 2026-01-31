@@ -6,7 +6,7 @@ use std::{env, io, io::prelude::*, mem, thread};
 
 use crossbeam_channel as channel;
 
-use self::stdx::{fmt, fs};
+use self::stdx::{ansi, fmt, fs};
 
 mod stdx;
 
@@ -24,6 +24,8 @@ mod bits {
 }
 
 fn main() -> io::Result<()> {
+  let _ = ansi::enable();
+
   let path = env::args_os().nth(1).unwrap_or_else(|| ".".into());
   let path = Path::new(&path);
   let mut w = io::stdout().lock();
