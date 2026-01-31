@@ -283,25 +283,25 @@ fn show_summary(mut w: impl Write, counts: Counts, [fast_t, slow_t]: [Duration; 
   let (total, uniq, dup, skipped) = (fmt::Size(total), fmt::Size(uniq), fmt::Size(dup), fmt::Size(skipped));
 
   {
-    let total_n = format_args!("\x1b[93m{total_n}\x1b[39m");
+    let total_n = format_args!("\x1b[96m{total_n}\x1b[39m");
     let uniq_n = format_args!("\x1b[92m{uniq_n}\x1b[39m \x1b[2m({uniq_n_pct:.0}%)\x1b[22m");
-    let dup_n = format_args!("\x1b[91m{dup_n}\x1b[39m \x1b[2m({dup_n_pct:.0}%)\x1b[22m");
+    let dup_n = format_args!("\x1b[93m{dup_n}\x1b[39m \x1b[2m({dup_n_pct:.0}%)\x1b[22m");
     writeln!(w)?;
     writeln!(w, "{total_n} files: {uniq_n} unique and {dup_n} duplicates")?;
 
-    let total = format_args!("\x1b[93m{total}\x1b[39m");
+    let total = format_args!("\x1b[96m{total}\x1b[39m");
     let uniq = format_args!("\x1b[92m{uniq}\x1b[39m \x1b[2m({uniq_pct:.0}%)\x1b[22m");
-    let dup = format_args!("\x1b[91m{dup}\x1b[39m \x1b[2m({dup_pct:.0}%)\x1b[22m");
+    let dup = format_args!("\x1b[93m{dup}\x1b[39m \x1b[2m({dup_pct:.0}%)\x1b[22m");
     writeln!(w)?;
     writeln!(w, "{total} of data: {uniq} unique and {dup} duplicated")?;
   }
 
   if total_n > skipped_n {
     writeln!(w)?;
-    writeln!(w, "skipped \x1b[92m{skipped_n}\x1b[39m files \x1b[2m({skipped})\x1b[22m")?;
+    writeln!(w, "skipped \x1b[96m{skipped_n}\x1b[39m files \x1b[2m({skipped})\x1b[22m")?;
 
-    let fast = (4, "fast", fast, fast_n, fast_t);
-    let slow = (5, "slow", slow, slow_n, slow_t);
+    let fast = (2, "fast", fast, fast_n, fast_t);
+    let slow = (3, "slow", slow, slow_n, slow_t);
     for (color, name, bytes, n, t) in [fast, slow] {
       let s = t.as_secs_f64();
 
