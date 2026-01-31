@@ -10,7 +10,8 @@ use self::stdx::{fmt, fs};
 
 mod stdx;
 
-type Hash = [u64; 2];
+type Hash = [u64; 2]; // [file hash, file size and bitflags]
+
 type Counts = HashMap<Hash, u64>;
 type Hashes = Vec<(Box<Path>, Hash)>;
 type Errors = Vec<(Box<Path>, io::Error)>;
@@ -158,7 +159,7 @@ fn show_duplicates(mut w: impl Write, hashes: Hashes, root: &Path) -> io::Result
   path_groups.sort_unstable_by(|([_, bits0], pg0), ([_, bits1], pg1)| {
     let a = (pg0.len() as u64 - 1) * (bits0 & bits::SIZE);
     let b = (pg1.len() as u64 - 1) * (bits1 & bits::SIZE);
-    a.cmp(&b) // sort by wasted space
+    a.cmp(&b) // by total duplicated bytes
   });
 
   for ([hash, bits], mut paths) in path_groups {
@@ -180,7 +181,7 @@ fn show_duplicates(mut w: impl Write, hashes: Hashes, root: &Path) -> io::Result
     let cmp = |p0: &Box<Path>, p1: &Box<Path>| {
       let [c0, c1] = [p0, p1].map(|p| p.components().count());
       let [n0, n1] = [p0, p1].map(|p| p.as_os_str().len());
-      (c0, n0, p0).cmp(&(c1, n1, p1)) // by comp. count, by length, lexicographically
+      (c0, n0, p0).cmp(&(c1, n1, p1)) // by depth, by length, lexicographically
     };
 
     let (show, hide) = {
@@ -211,13 +212,13 @@ fn show_errors(mut w: impl Write, mut errors: Errors, root: &Path) -> io::Result
   let sort_by = |(p0, e0): &(_, io::Error), (p1, e1): &(_, io::Error)| {
     let a = (e0.kind(), e0.raw_os_error(), p0);
     let b = (e1.kind(), e1.raw_os_error(), p1);
-    a.cmp(&b)
+    a.cmp(&b) // by error kind, by OS error code, lexicographically by path
   };
 
   let chunk_by = |(_, e0): &(_, io::Error), (_, e1): &(_, io::Error)| {
     let a = (e0.kind(), e0.raw_os_error());
     let b = (e1.kind(), e1.raw_os_error());
-    a == b
+    a == b // group by error kind and OS error code
   };
 
   let grouped = {
