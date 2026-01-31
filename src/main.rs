@@ -155,9 +155,9 @@ fn show_duplicates(mut w: impl Write, hashes: Hashes, root: &Path) -> io::Result
   }
 
   let mut path_groups = Vec::from_iter(path_groups);
-  path_groups.sort_unstable_by(|([_, bits_a], a), ([_, bits_b], b)| {
-    let a = (a.len() as u64 - 1) * (bits_a & bits::SIZE);
-    let b = (b.len() as u64 - 1) * (bits_b & bits::SIZE);
+  path_groups.sort_unstable_by(|([_, bits0], pg0), ([_, bits1], pg1)| {
+    let a = (pg0.len() as u64 - 1) * (bits0 & bits::SIZE);
+    let b = (pg1.len() as u64 - 1) * (bits1 & bits::SIZE);
     a.cmp(&b) // sort by wasted space
   });
 
@@ -177,10 +177,10 @@ fn show_duplicates(mut w: impl Write, hashes: Hashes, root: &Path) -> io::Result
     writeln!(w)?;
     writeln!(w, "{hash}{0}{count}{0}{each}{0}{dup}", " \x1b[2m·\x1b[22m ")?;
 
-    let cmp = |a: &Box<Path>, b: &Box<Path>| {
-      let [ac, bc] = [a, b].map(|p| p.components().count()); // by component count
-      let [an, bn] = [a, b].map(|p| p.as_os_str().len()); // then by length
-      ac.cmp(&bc).then(an.cmp(&bn)).then(a.cmp(b)) // then lexicographically
+    let cmp = |p0: &Box<Path>, p1: &Box<Path>| {
+      let [c0, c1] = [p0, p1].map(|p| p.components().count());
+      let [n0, n1] = [p0, p1].map(|p| p.as_os_str().len());
+      (c0, n0, p0).cmp(&(c1, n1, p1)) // by comp. count, by length, lexicographically
     };
 
     let (show, hide) = {
