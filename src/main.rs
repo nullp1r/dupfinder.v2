@@ -208,10 +208,21 @@ fn show_duplicates(mut w: impl Write, hashes: Hashes, root: &Path) -> io::Result
 fn show_errors(mut w: impl Write, mut errors: Errors, root: &Path) -> io::Result<()> {
   let 1.. = errors.len() else { return Ok(()) };
 
-  let key = |(_, e): &(_, io::Error)| (e.kind(), e.raw_os_error());
+  let sort_by = |(p0, e0): &(_, io::Error), (p1, e1): &(_, io::Error)| {
+    let a = (e0.kind(), e0.raw_os_error(), p0);
+    let b = (e1.kind(), e1.raw_os_error(), p1);
+    a.cmp(&b)
+  };
+
+  let chunk_by = |(_, e0): &(_, io::Error), (_, e1): &(_, io::Error)| {
+    let a = (e0.kind(), e0.raw_os_error());
+    let b = (e1.kind(), e1.raw_os_error());
+    a == b
+  };
+
   let grouped = {
-    errors.sort_unstable_by_key(key);
-    errors.chunk_by(|a, b| key(a) == key(b))
+    errors.sort_unstable_by(sort_by);
+    errors.chunk_by(chunk_by)
   };
 
   writeln!(w)?;
