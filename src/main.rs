@@ -14,7 +14,7 @@ type Hash = [u64; 2]; // [file hash, file size and bitflags]
 
 type Counts = HashMap<Hash, u64>;
 type Hashes = Vec<(Box<Path>, Hash)>;
-type Errors = Vec<(Box<Path>, io::Error)>;
+type Errors = Vec<(Box<Path>, bool, io::Error)>; // `true` if full path
 
 mod bits {
   pub const HASH_FAST: u64 = 0b10 << 62;
@@ -49,12 +49,18 @@ fn scan(mut w: impl Write, errors: &mut Errors, sizes: &mut Hashes, root: &Path)
   writeln!(w, "scanning file system…")?;
   write!(w, "files found: \x1b[s\x1b[?25l")?; // save and hide cursor
   let mut total = 0;
-  fs::scan(root, &mut |cwd, res| {
-    match res.and_then(|(path, file)| Ok((path.into_boxed_path(), file.metadata()?.len()))) {
-      Err(err) => errors.push((cwd.to_owned().into_boxed_path(), err)),
+
+  fs::scan(root, &mut |cwd, r| {
+    let r = r.map_err(|err| (cwd.to_owned().into_boxed_path(), false, err));
+    let r = r.and_then(|(path, file)| match file.metadata() {
+      Err(err) => Err((path.into_boxed_path(), true, err)),
+      Ok(meta) => Ok((path, meta.len())),
+    });
+    match r {
+      Err(err) => errors.push(err),
       Ok((path, size)) => {
         total += size;
-        sizes.push((path, [0, size]));
+        sizes.push((path.into_boxed_path(), [0, size]));
         write!(w, "\x1b[u\x1b[93m{}\x1b[39m \x1b[2m({})\x1b[22m\x1b[K", sizes.len(), fmt::Size(total))?;
       }
     };
@@ -138,7 +144,7 @@ fn compute_hashes(mut w: impl Write, errors: &mut Errors, hashes: &mut Hashes, s
   let t0 = Instant::now();
   for (path, hash) in outputs_rx {
     match hash {
-      Err(err) => errors.push((path, err)),
+      Err(err) => errors.push((path, true, err)),
       Ok(hash) => {
         hashes.push((path, hash));
         write!(w, "\x1b[u{}\x1b[K", hashes.len())?;
@@ -211,34 +217,32 @@ fn show_duplicates(mut w: impl Write, hashes: Hashes, root: &Path) -> io::Result
 fn show_errors(mut w: impl Write, mut errors: Errors, root: &Path) -> io::Result<()> {
   let 1.. = errors.len() else { return Ok(()) };
 
-  let sort_by = |(p0, e0): &(_, io::Error), (p1, e1): &(_, io::Error)| {
+  errors.sort_unstable_by(|(p0, _, e0), (p1, _, e1)| {
     let a = (e0.kind(), e0.raw_os_error(), p0);
     let b = (e1.kind(), e1.raw_os_error(), p1);
     a.cmp(&b) // by error kind, by OS error code, lexicographically by path
-  };
+  });
 
-  let chunk_by = |(_, e0): &(_, io::Error), (_, e1): &(_, io::Error)| {
+  let groups = errors.chunk_by(|(_, _, e0), (_, _, e1)| {
     let a = (e0.kind(), e0.raw_os_error());
     let b = (e1.kind(), e1.raw_os_error());
     a == b // group by error kind and OS error code
-  };
+  });
 
-  let grouped = {
-    errors.sort_unstable_by(sort_by);
-    errors.chunk_by(chunk_by)
-  };
-
-  writeln!(w)?;
-  writeln!(w, "\x1b[91merrors:\x1b[39m")?;
-  for group in grouped {
-    let (_, err) = &group[0];
-    writeln!(w, "{err}:")?;
+  for group in groups {
+    let (_, _, err) = &group[0];
+    writeln!(w)?;
+    writeln!(w, "\x1b[91m{err}:\x1b[39m")?;
 
     let (show, hide) = group.split_at(group.len().min(3));
-    for (path, _) in show {
-      let path = path.strip_prefix(root).unwrap_or(path).display();
-      writeln!(w, "\x1b[2m{path}\x1b[22m")?;
+
+    for (path, full_path, _) in show {
+      let [c0, c1] = if *full_path { ["", ""] } else { ["\x1b[2m", "\x1b[22m"] };
+      let path = path.strip_prefix(root).unwrap_or(path);
+      let path = if let 0 = path.as_os_str().len() { root } else { path };
+      writeln!(w, "{c0}{}{c1}", path.display())?
     }
+
     if let n @ 1.. = hide.len() {
       writeln!(w, "\x1b[2mand {n} more…\x1b[22m")?;
     }
