@@ -18,12 +18,61 @@ pub mod fmt {
   }
 }
 
+pub mod hash {
+  use std::{collections, hash};
+
+  pub type HashMap<K, V> = collections::HashMap<K, V, BuildHasher>;
+
+  #[derive(Default)]
+  pub struct BuildHasher;
+
+  impl hash::BuildHasher for BuildHasher {
+    type Hasher = Hasher;
+
+    fn build_hasher(&self) -> Self::Hasher {
+      Hasher::default()
+    }
+  }
+
+  #[derive(Default)]
+  pub struct Hasher {
+    state: u64,
+  }
+
+  impl hash::Hasher for Hasher {
+    fn write(&mut self, input: &[u8]) {
+      let (chunks, tail) = input.as_chunks();
+      for chunk in chunks {
+        self.write_u64(u64::from_ne_bytes(*chunk));
+      }
+      if let n @ 1.. = tail.len() {
+        let mut chunk = [0xff; _];
+        chunk[..n].copy_from_slice(tail);
+        self.write_u64(u64::from_ne_bytes(chunk));
+      }
+    }
+
+    fn write_u64(&mut self, input: u64) {
+      self.state = self.state.wrapping_add(0x9e3779b97f4a7c15) ^ input;
+    }
+
+    fn finish(&self) -> u64 {
+      let mut x = self.state;
+      x = (x ^ x >> 27).wrapping_mul(0x3c79ac492ba7b653);
+      x = (x ^ x >> 33).wrapping_mul(0x1c69b3f74ac4ae35);
+      x ^ x >> 27
+    }
+  }
+}
+
 pub mod fs {
   use std::fs::{DirEntry, File};
-  use std::hash::{DefaultHasher, Hasher as _};
+  use std::hash::Hasher as _;
   use std::io::SeekFrom;
   use std::path::{Path, PathBuf};
   use std::{fs, io, io::prelude::*};
+
+  use super::hash::Hasher;
 
   #[derive(Clone, Copy)]
   pub enum FileHash {
@@ -45,7 +94,7 @@ pub mod fs {
         }
       };
 
-      let mut hasher = DefaultHasher::default();
+      let mut hasher = Hasher::default();
       let mut buffer = [0; 1 << 17]; // 128 KiB
       let buffer = self.limited(&mut buffer);
       loop {

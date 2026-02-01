@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
 use std::{env, io, io::prelude::*, mem, thread};
@@ -6,6 +5,7 @@ use std::{env, io, io::prelude::*, mem, thread};
 use crossbeam_channel as channel;
 
 use self::stdx::fs::FileHash;
+use self::stdx::hash::HashMap;
 use self::stdx::{ansi, fmt, fs};
 
 mod stdx;
