@@ -303,7 +303,7 @@ fn show_summary(mut w: impl Write, sig_count: SigCount, [fast_t, slow_t]: [Durat
     let fast = (2, "fast", fast, fast_n, fast_t);
     let slow = (3, "slow", slow, slow_n, slow_t);
     for (color, name, bytes, n, t) in [fast, slow] {
-      let s = t.as_secs_f64();
+      let s = t.as_secs_f64().max(f64::MIN_POSITIVE);
 
       let size = fmt::Size(bytes);
       let rate = fmt::Size((bytes as f64 / s) as u64);
