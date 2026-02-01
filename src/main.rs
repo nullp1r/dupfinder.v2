@@ -14,8 +14,8 @@ type Sig = [u64; 2]; // [meta bits | file size, file hash]
 type Sigs = Vec<(Box<Path>, Sig)>;
 type SigCount = HashMap<Sig, u64>;
 
-type IsFullPath = bool;
-type Errors = Vec<(Box<Path>, IsFullPath, io::Error)>;
+type Stats = (usize, u64, Duration); // (hashes, bytes, time taken)
+type Errors = Vec<(Box<Path>, bool, io::Error)>; // `true` if full path
 
 const PARTIAL_HASH_SIZE: u64 = 1 << 12; // 4 KiB
 
@@ -103,13 +103,13 @@ fn count(inputs: impl IntoIterator<Item = (Box<Path>, Sig)>, sigs: &mut Sigs, si
   }
 }
 
-fn compute_hashes(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, hash: FileHash) -> io::Result<Duration> {
+fn compute_hashes(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, hash: FileHash) -> io::Result<Stats> {
   let 1.. = sigs.len() else { return Ok(Default::default()) };
 
-  let (hash_type, hash_name) = match hash {
-    FileHash::Full => (HASH_FULL, "full"),
-    FileHash::Prefix(_) => (HASH_PREF, "prefix"),
-    FileHash::Suffix(_) => (HASH_SUFF, "suffix"),
+  let (name, marker_bit, max_bytes) = match hash {
+    FileHash::Full => ("full", HASH_FULL, u64::MAX),
+    FileHash::Prefix(_) => ("prefix", HASH_PREF, PARTIAL_HASH_SIZE),
+    FileHash::Suffix(_) => ("suffix", HASH_SUFF, PARTIAL_HASH_SIZE),
   };
 
   let threads_n = thread::available_parallelism()?.get();
@@ -122,7 +122,7 @@ fn compute_hashes(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, hash: F
     let outputs_tx = outputs_tx.clone();
     thread::spawn(move || {
       for (path, [meta, _]) in inputs_rx {
-        let sig = hash.compute(&path).map(|hash| [meta | hash_type, hash]);
+        let sig = hash.compute(&path).map(|hash| [meta | marker_bit, hash]);
         let _ = outputs_tx.send((path, sig));
       }
     });
@@ -133,7 +133,7 @@ fn compute_hashes(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, hash: F
 
   // producer
   let inputs = mem::take(sigs);
-  let count = inputs.len();
+  let inputs_n = inputs.len();
   thread::spawn(move || {
     for input in inputs {
       let _ = inputs_tx.send(input);
@@ -142,14 +142,16 @@ fn compute_hashes(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, hash: F
 
   // consumer
   writeln!(w)?;
-  writeln!(w, "computing \x1b[93m{count}\x1b[39m {hash_name} hashes… \x1b[2m({threads_n} threads)\x1b[22m")?;
+  writeln!(w, "computing \x1b[93m{inputs_n}\x1b[39m {name} hashes… \x1b[2m({threads_n} threads)\x1b[22m")?;
   write!(w, "computed: \x1b[93m\x1b[s\x1b[?25l")?; // save and hide cursor
   let t0 = Instant::now();
+  let mut bytes = 0;
   for (path, sig) in outputs_rx {
     match sig {
       Err(err) => errs.push((path, true, err)),
-      Ok(sig) => {
+      Ok(sig @ [meta, _]) => {
         sigs.push((path, sig));
+        bytes += max_bytes.min(meta & SIZE_MASK);
         write!(w, "\x1b[u{}\x1b[K", sigs.len())?;
       }
     };
@@ -157,7 +159,7 @@ fn compute_hashes(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, hash: F
   let t1 = Instant::now();
   writeln!(w, "\x1b[?25h\x1b[39m")?;
 
-  Ok(t1 - t0)
+  Ok((inputs_n, bytes, t1 - t0))
 }
 
 fn show_duplicates(mut w: impl Write, sigs: Sigs, root: &Path) -> io::Result<()> {
@@ -254,33 +256,23 @@ fn show_errors(mut w: impl Write, mut errs: Errors, root: &Path) -> io::Result<(
   Ok(())
 }
 
-fn show_summary(mut w: impl Write, sig_count: SigCount, [prefix_t, suffix_t, full_t]: [Duration; 3]) -> io::Result<()> {
-  let (mut total_n, mut skipped_n, mut prefix_n, mut suffix_n, mut full_n, mut dup_n) = (0, 0, 0, 0, 0, 0);
-  let (mut total, mut skipped, mut prefix, mut suffix, mut full, mut dup) = (0, 0, 0, 0, 0, 0);
+fn show_summary(mut w: impl Write, sig_count: SigCount, [prefix, suffix, full]: [Stats; 3]) -> io::Result<()> {
+  let (mut total_n, mut skipped_n, mut dup_n) = (0, 0, 0);
+  let (mut total, mut skipped, mut dup) = (0, 0, 0);
 
   for ([meta, _], count) in sig_count {
     let size = meta & SIZE_MASK;
     total_n += count;
     total += count * size;
+
     if count > 1 {
       dup_n += count - 1;
       dup += (count - 1) * size;
     }
+
     if meta & HASH_MASK == 0 {
       skipped_n += count;
       skipped += count * size;
-    }
-    if meta & HASH_PREF != 0 {
-      prefix_n += count;
-      prefix += count * PARTIAL_HASH_SIZE;
-    }
-    if meta & HASH_SUFF != 0 {
-      suffix_n += count;
-      suffix += count * PARTIAL_HASH_SIZE;
-    }
-    if meta & HASH_FULL != 0 {
-      full_n += count;
-      full += count * size;
     }
   }
 
@@ -307,19 +299,16 @@ fn show_summary(mut w: impl Write, sig_count: SigCount, [prefix_t, suffix_t, ful
     writeln!(w)?;
     writeln!(w, "skipped \x1b[96m{skipped_n}\x1b[39m files \x1b[2m({skipped})\x1b[22m")?;
 
-    let prefix = (2, "prefix", prefix, prefix_n, prefix_t);
-    let suffix = (2, "suffix", suffix, suffix_n, suffix_t);
-    let full = (3, "full", full, full_n, full_t);
-    for (color, name, bytes, n, t) in [prefix, suffix, full] {
+    for (color, name, (count, bytes, t)) in [(2, "prefix", prefix), (2, "suffix", suffix), (3, "full", full)] {
       let s = t.as_secs_f64().max(f64::MIN_POSITIVE);
 
       let size = fmt::Size(bytes);
       let rate = fmt::Size((bytes as f64 / s) as u64);
-      let rate_n = n as f64 / s;
+      let rate_n = count as f64 / s;
 
-      let perf = format_args!("computed \x1b[9{color}m{n}\x1b[39m {name} hashes in \x1b[93m{s:.2}s\x1b[39m");
-      let stats = format_args!("\x1b[2m({rate_n:.0} files/s · {rate}/s · {size})\x1b[22m");
-      writeln!(w, "{perf} {stats}")?;
+      let main = format_args!("computed \x1b[9{color}m{count}\x1b[39m {name} hashes in \x1b[93m{t:.2?}\x1b[39m");
+      let extra = format_args!("\x1b[2m({rate_n:.0} files/s · {rate}/s · {size})\x1b[22m");
+      writeln!(w, "{main} {extra}")?;
     }
   }
 
