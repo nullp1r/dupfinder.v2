@@ -19,18 +19,28 @@ pub mod fmt {
 }
 
 pub mod hash {
+  use std::sync::atomic::{AtomicU64, Ordering};
   use std::{collections, hash};
 
-  pub type HashMap<K, V> = collections::HashMap<K, V, BuildHasher>;
+  pub type HashMap<K, V> = collections::HashMap<K, V, HasherBuilder>;
 
-  #[derive(Default)]
-  pub struct BuildHasher;
+  pub struct HasherBuilder {
+    seed: u64,
+  }
 
-  impl hash::BuildHasher for BuildHasher {
+  impl Default for HasherBuilder {
+    fn default() -> Self {
+      static SEED: AtomicU64 = AtomicU64::new(1);
+
+      Self { seed: SEED.fetch_add(1, Ordering::Relaxed) }
+    }
+  }
+
+  impl hash::BuildHasher for HasherBuilder {
     type Hasher = Hasher;
 
     fn build_hasher(&self) -> Self::Hasher {
-      Hasher::default()
+      Hasher { state: self.seed }
     }
   }
 
