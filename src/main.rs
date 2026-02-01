@@ -85,7 +85,7 @@ fn filter_and_count(mut w: impl Write, inputs: &mut Sigs, sigs: &mut Sigs, sig_c
 
   if let n @ 1.. = total - inputs.len() {
     writeln!(w)?;
-    writeln!(w, "skipped \x1b[92m{n}\x1b[39m files \x1b[2m(unique or empty)\x1b[22m")?;
+    writeln!(w, "files skipped: \x1b[92m{n}\x1b[39m \x1b[2m(unique or empty)\x1b[22m")?;
   }
 
   Ok(())
