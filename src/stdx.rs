@@ -20,31 +20,51 @@ pub mod fmt {
 
 pub mod fs {
   use std::fs::{DirEntry, File};
-  use std::hash::{DefaultHasher, Hasher};
+  use std::hash::{DefaultHasher, Hasher as _};
+  use std::io::SeekFrom;
   use std::path::{Path, PathBuf};
   use std::{fs, io, io::prelude::*};
 
-  pub const BUF_SIZE_FAST: usize = 1 << 12; //  4 KiB
-  pub const BUF_SIZE_SLOW: usize = 1 << 16; // 64 KiB
+  #[derive(Clone, Copy)]
+  pub enum FileHash {
+    Full,
+    Prefix(u64),
+    Suffix(u64),
+  }
 
-  pub fn hash(path: &Path, steps: usize) -> io::Result<u64> {
-    let mut file = File::open(path)?;
-    let mut hasher = DefaultHasher::new();
-    let mut buffer = [0; BUF_SIZE_SLOW];
+  impl FileHash {
+    pub fn compute(self, path: &Path) -> io::Result<u64> {
+      let mut file = File::open(path)?;
+      let mut file = match self {
+        Self::Full => file.take(u64::MAX),
+        Self::Prefix(max_bytes) => file.take(max_bytes),
+        Self::Suffix(max_bytes) => {
+          let size = file.seek(SeekFrom::End(0))?;
+          file.seek(SeekFrom::Start(size.saturating_sub(max_bytes)))?;
+          file.take(u64::MAX)
+        }
+      };
 
-    let buffer = match steps {
-      1 => &mut buffer[..BUF_SIZE_FAST],
-      _ => &mut buffer,
-    };
-
-    for _ in 0..steps {
-      match file.read(buffer)? {
-        0 => break,
-        n => hasher.write(&buffer[..n]),
+      let mut hasher = DefaultHasher::default();
+      let mut buffer = [0; 1 << 17]; // 128 KiB
+      let buffer = self.limited(&mut buffer);
+      loop {
+        match file.read(buffer)? {
+          0 => break Ok(hasher.finish()),
+          n => hasher.write(&buffer[..n]),
+        }
       }
     }
 
-    Ok(hasher.finish())
+    fn limited(self, buf: &mut [u8]) -> &mut [u8] {
+      if let Self::Prefix(limit) | Self::Suffix(limit) = self
+        && limit < buf.len() as u64
+      {
+        &mut buf[..limit as usize]
+      } else {
+        &mut buf[..]
+      }
+    }
   }
 
   pub fn scan<F>(cwd: &Path, f: &mut F) -> io::Result<()>

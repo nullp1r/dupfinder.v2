@@ -1,11 +1,11 @@
-use std::collections::hash_map::HashMap;
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
-use std::usize;
 use std::{env, io, io::prelude::*, mem, thread};
 
 use crossbeam_channel as channel;
 
+use self::stdx::fs::FileHash;
 use self::stdx::{ansi, fmt, fs};
 
 mod stdx;
@@ -17,12 +17,13 @@ type SigCount = HashMap<Sig, u64>;
 type IsFullPath = bool;
 type Errors = Vec<(Box<Path>, IsFullPath, io::Error)>;
 
-mod bits {
-  pub const HASH_FAST: u64 = 0b10 << 62;
-  pub const HASH_SLOW: u64 = 0b01 << 62;
-  pub const HASH: u64 = 0b11 << 62;
-  pub const SIZE: u64 = !HASH;
-}
+const PARTIAL_HASH_SIZE: u64 = 1 << 12; // 4 KiB
+
+const HASH_PREF: u64 = 0b100 << 61;
+const HASH_SUFF: u64 = 0b010 << 61;
+const HASH_FULL: u64 = 0b001 << 61;
+const HASH_MASK: u64 = 0b111 << 61;
+const SIZE_MASK: u64 = !HASH_MASK;
 
 fn main() -> io::Result<()> {
   ansi::enable();
@@ -35,15 +36,18 @@ fn main() -> io::Result<()> {
   scan(&mut w, &mut errs, &mut inputs, path)?;
   filter_and_count(&mut w, &mut inputs, &mut sigs, &mut sig_count)?;
 
-  let fast = compute_hashes(&mut w, &mut errs, &mut inputs, 1)?;
+  let prefix = compute_hashes(&mut w, &mut errs, &mut inputs, FileHash::Prefix(PARTIAL_HASH_SIZE))?;
   filter_and_count(&mut w, &mut inputs, &mut sigs, &mut sig_count)?;
 
-  let slow = compute_hashes(&mut w, &mut errs, &mut inputs, usize::MAX)?;
+  let suffix = compute_hashes(&mut w, &mut errs, &mut inputs, FileHash::Suffix(PARTIAL_HASH_SIZE))?;
+  filter_and_count(&mut w, &mut inputs, &mut sigs, &mut sig_count)?;
+
+  let full = compute_hashes(&mut w, &mut errs, &mut inputs, FileHash::Full)?;
   count(inputs, &mut sigs, &mut sig_count);
 
   show_duplicates(&mut w, sigs, path)?;
   show_errors(&mut w, errs, path)?;
-  show_summary(&mut w, sig_count, [fast, slow])
+  show_summary(&mut w, sig_count, [prefix, suffix, full])
 }
 
 fn scan(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, root: &Path) -> io::Result<()> {
@@ -99,28 +103,26 @@ fn count(inputs: impl IntoIterator<Item = (Box<Path>, Sig)>, sigs: &mut Sigs, si
   }
 }
 
-fn compute_hashes(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, steps: usize) -> io::Result<Duration> {
+fn compute_hashes(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, hash: FileHash) -> io::Result<Duration> {
   let 1.. = sigs.len() else { return Ok(Default::default()) };
 
-  let threads = thread::available_parallelism()?.get();
-  let (inputs_tx, inputs_rx) = channel::bounded::<(Box<Path>, Sig)>(threads << 8);
-  let (outputs_tx, outputs_rx) = channel::bounded::<(Box<Path>, io::Result<Sig>)>(threads << 8);
-
-  let (hash_type, hash) = match steps {
-    1 => (bits::HASH_FAST, "fast"),
-    _ => (bits::HASH_SLOW, "slow"),
+  let (hash_type, hash_name) = match hash {
+    FileHash::Full => (HASH_FULL, "full"),
+    FileHash::Prefix(_) => (HASH_PREF, "prefix"),
+    FileHash::Suffix(_) => (HASH_SUFF, "suffix"),
   };
 
+  let threads_n = thread::available_parallelism()?.get();
+  let (inputs_tx, inputs_rx) = channel::bounded::<(Box<Path>, Sig)>(threads_n << 8);
+  let (outputs_tx, outputs_rx) = channel::bounded::<(Box<Path>, io::Result<Sig>)>(threads_n << 8);
+
   // n workers
-  for _ in 0..threads {
+  for _ in 0..threads_n {
     let inputs_rx = inputs_rx.clone();
     let outputs_tx = outputs_tx.clone();
     thread::spawn(move || {
       for (path, [meta, _]) in inputs_rx {
-        let sig = match fs::hash(&path, steps) {
-          Ok(hash) => Ok([meta | hash_type, hash]),
-          Err(err) => Err(err),
-        };
+        let sig = hash.compute(&path).map(|hash| [meta | hash_type, hash]);
         let _ = outputs_tx.send((path, sig));
       }
     });
@@ -140,7 +142,7 @@ fn compute_hashes(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, steps: 
 
   // consumer
   writeln!(w)?;
-  writeln!(w, "computing \x1b[93m{count}\x1b[39m {hash} hashes… \x1b[2m({threads} threads)\x1b[22m")?;
+  writeln!(w, "computing \x1b[93m{count}\x1b[39m {hash_name} hashes… \x1b[2m({threads_n} threads)\x1b[22m")?;
   write!(w, "computed: \x1b[93m\x1b[s\x1b[?25l")?; // save and hide cursor
   let t0 = Instant::now();
   for (path, sig) in outputs_rx {
@@ -166,8 +168,8 @@ fn show_duplicates(mut w: impl Write, sigs: Sigs, root: &Path) -> io::Result<()>
 
   let mut path_groups = Vec::from_iter(path_groups);
   path_groups.sort_unstable_by(|([meta0, _], group0), ([meta1, _], group1)| {
-    let a = (group0.len() as u64 - 1) * (meta0 & bits::SIZE);
-    let b = (group1.len() as u64 - 1) * (meta1 & bits::SIZE);
+    let a = (group0.len() as u64 - 1) * (meta0 & SIZE_MASK);
+    let b = (group1.len() as u64 - 1) * (meta1 & SIZE_MASK);
     a.cmp(&b) // by total duplicated bytes
   });
 
@@ -175,7 +177,7 @@ fn show_duplicates(mut w: impl Write, sigs: Sigs, root: &Path) -> io::Result<()>
     let len @ 2.. = group.len() else { continue };
     let mid = len.min(3);
 
-    let size = meta & bits::SIZE;
+    let size = meta & SIZE_MASK;
     let each = fmt::Size(size);
     let dup = fmt::Size(size * (len as u64 - 1));
 
@@ -252,29 +254,33 @@ fn show_errors(mut w: impl Write, mut errs: Errors, root: &Path) -> io::Result<(
   Ok(())
 }
 
-fn show_summary(mut w: impl Write, sig_count: SigCount, [fast_t, slow_t]: [Duration; 2]) -> io::Result<()> {
-  let (mut total_n, mut skipped_n, mut fast_n, mut slow_n, mut dup_n) = (0, 0, 0, 0, 0);
-  let (mut total, mut skipped, mut fast, mut slow, mut dup) = (0, 0, 0, 0, 0);
+fn show_summary(mut w: impl Write, sig_count: SigCount, [prefix_t, suffix_t, full_t]: [Duration; 3]) -> io::Result<()> {
+  let (mut total_n, mut skipped_n, mut prefix_n, mut suffix_n, mut full_n, mut dup_n) = (0, 0, 0, 0, 0, 0);
+  let (mut total, mut skipped, mut prefix, mut suffix, mut full, mut dup) = (0, 0, 0, 0, 0, 0);
 
   for ([meta, _], count) in sig_count {
-    let size = meta & bits::SIZE;
+    let size = meta & SIZE_MASK;
     total_n += count;
     total += count * size;
     if count > 1 {
       dup_n += count - 1;
       dup += (count - 1) * size;
     }
-    if meta & bits::HASH == 0 {
+    if meta & HASH_MASK == 0 {
       skipped_n += count;
       skipped += count * size;
     }
-    if meta & bits::HASH_FAST != 0 {
-      fast_n += count;
-      fast += count * fs::BUF_SIZE_FAST as u64;
+    if meta & HASH_PREF != 0 {
+      prefix_n += count;
+      prefix += count * PARTIAL_HASH_SIZE;
     }
-    if meta & bits::HASH_SLOW != 0 {
-      slow_n += count;
-      slow += count * size;
+    if meta & HASH_SUFF != 0 {
+      suffix_n += count;
+      suffix += count * PARTIAL_HASH_SIZE;
+    }
+    if meta & HASH_FULL != 0 {
+      full_n += count;
+      full += count * size;
     }
   }
 
@@ -301,9 +307,10 @@ fn show_summary(mut w: impl Write, sig_count: SigCount, [fast_t, slow_t]: [Durat
     writeln!(w)?;
     writeln!(w, "skipped \x1b[96m{skipped_n}\x1b[39m files \x1b[2m({skipped})\x1b[22m")?;
 
-    let fast = (2, "fast", fast, fast_n, fast_t);
-    let slow = (3, "slow", slow, slow_n, slow_t);
-    for (color, name, bytes, n, t) in [fast, slow] {
+    let prefix = (2, "prefix", prefix, prefix_n, prefix_t);
+    let suffix = (2, "suffix", suffix, suffix_n, suffix_t);
+    let full = (3, "full", full, full_n, full_t);
+    for (color, name, bytes, n, t) in [prefix, suffix, full] {
       let s = t.as_secs_f64().max(f64::MIN_POSITIVE);
 
       let size = fmt::Size(bytes);
