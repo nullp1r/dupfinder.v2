@@ -72,37 +72,30 @@ pub mod fs {
 }
 
 pub mod ansi {
-  use std::io;
-
   #[cfg(not(windows))]
-  pub fn enable() -> io::Result<()> {
-    Ok(())
-  }
+  pub fn enable() {}
 
   #[cfg(windows)]
-  pub fn enable() -> io::Result<()> {
-    use std::ffi::c_void;
-    use std::num::NonZeroI32;
-    use std::os::windows::io::AsRawHandle;
+  pub fn enable() {
+    use windows_sys::Win32::{Foundation::*, System::Console::*};
 
-    unsafe extern "system" {
-      fn GetConsoleMode(h: *mut c_void, mode: *mut u32) -> i32;
-      fn SetConsoleMode(h: *mut c_void, mode: u32) -> i32;
+    for id in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+      unsafe {
+        let h = GetStdHandle(id);
+        if h.is_null() || h == INVALID_HANDLE_VALUE {
+          continue;
+        }
+
+        let mut mode = 0;
+        if GetConsoleMode(h, &mut mode) == FALSE {
+          continue;
+        }
+
+        let mode = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+        if SetConsoleMode(h, mode) == FALSE {
+          continue;
+        }
+      }
     }
-
-    let handle = io::stdout().as_raw_handle();
-    let mut mode = 0;
-
-    unsafe {
-      let Some(_) = NonZeroI32::new(GetConsoleMode(handle, &mut mode)) else {
-        return Err(io::Error::last_os_error());
-      };
-
-      let Some(_) = NonZeroI32::new(SetConsoleMode(handle, mode | 0x0004)) else {
-        return Err(io::Error::last_os_error());
-      };
-    }
-
-    Ok(())
   }
 }

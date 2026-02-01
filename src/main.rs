@@ -25,7 +25,7 @@ mod bits {
 }
 
 fn main() -> io::Result<()> {
-  let _ = ansi::enable();
+  ansi::enable();
 
   let path = env::args_os().nth(1).unwrap_or_else(|| ".".into());
   let path = Path::new(&path);
