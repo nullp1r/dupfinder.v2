@@ -77,15 +77,16 @@ fn filter_and_count(mut w: impl Write, inputs: &mut Sigs, sigs: &mut Sigs, sig_c
 
   let total = inputs.len();
   let skip = inputs.extract_if(.., |&mut (_, sig @ [meta, _])| {
-    let empty = meta & bits::SIZE == 0;
-    let unique = inputs_sig_count.get(&sig).is_some_and(|&n| n < 2);
-    empty || unique
+    let [hash, size] = [meta & HASH_MASK, meta & SIZE_MASK];
+    size == 0 || // empty file
+      size <= PARTIAL_HASH_SIZE && hash != 0 || // already fully hashed small file
+      inputs_sig_count.get(&sig).is_some_and(|&n| n < 2) // unique file
   });
   count(skip, sigs, sig_count);
 
   if let n @ 1.. = total - inputs.len() {
     writeln!(w)?;
-    writeln!(w, "files skipped: \x1b[92m{n}\x1b[39m \x1b[2m(unique or empty)\x1b[22m")?;
+    writeln!(w, "files skipped: \x1b[92m{n}\x1b[39m \x1b[2m(unique, empty, or already hashed)\x1b[22m")?;
   }
 
   Ok(())
