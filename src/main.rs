@@ -195,11 +195,9 @@ fn show_duplicates(mut w: impl Write, sigs: Sigs, root: &Path) -> io::Result<()>
     };
 
     for (i, path) in show.iter().enumerate() {
+      let [ansi0, ansi1] = if i == 0 { ["", ""] } else { ["\x1b[2m", "\x1b[22m"] };
       let path = path.strip_prefix(root).unwrap_or(path).display();
-      match i {
-        0 => writeln!(w, "{path}")?,
-        _ => writeln!(w, "\x1b[2m{path}\x1b[22m")?,
-      }
+      writeln!(w, "{ansi0}{path}{ansi1}")?
     }
 
     if let n @ 1.. = hide.len() {
@@ -232,11 +230,11 @@ fn show_errors(mut w: impl Write, mut errs: Errors, root: &Path) -> io::Result<(
 
     let (show, hide) = group.split_at(group.len().min(3));
 
-    for (path, full_path, _) in show {
-      let [c0, c1] = if *full_path { ["", ""] } else { ["\x1b[2m", "\x1b[22m"] };
+    for &(ref path, full_path, _) in show {
+      let [ansi0, ansi1] = if full_path { ["", ""] } else { ["\x1b[2m", "\x1b[22m"] };
       let path = path.strip_prefix(root).unwrap_or(path);
-      let path = if let 0 = path.as_os_str().len() { root } else { path };
-      writeln!(w, "{c0}{}{c1}", path.display())?
+      let path = if path.as_os_str().len() == 0 { root } else { path };
+      writeln!(w, "{ansi0}{}{ansi1}", path.display())?
     }
 
     if let n @ 1.. = hide.len() {
