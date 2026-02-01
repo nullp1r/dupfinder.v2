@@ -34,13 +34,13 @@ fn main() -> io::Result<()> {
   let (mut errs, mut inputs, mut sigs, mut sig_count) = Default::default();
 
   scan(&mut w, &mut errs, &mut inputs, path)?;
-  filter_and_count(&mut w, &mut inputs, &mut sigs, &mut sig_count)?;
+  filter_and_count(&mut inputs, &mut sigs, &mut sig_count);
 
   let prefix = compute_hashes(&mut w, &mut errs, &mut inputs, FileHash::Prefix(PARTIAL_HASH_SIZE))?;
-  filter_and_count(&mut w, &mut inputs, &mut sigs, &mut sig_count)?;
+  filter_and_count(&mut inputs, &mut sigs, &mut sig_count);
 
   let suffix = compute_hashes(&mut w, &mut errs, &mut inputs, FileHash::Suffix(PARTIAL_HASH_SIZE))?;
-  filter_and_count(&mut w, &mut inputs, &mut sigs, &mut sig_count)?;
+  filter_and_count(&mut inputs, &mut sigs, &mut sig_count);
 
   let full = compute_hashes(&mut w, &mut errs, &mut inputs, FileHash::Full)?;
   count(inputs, &mut sigs, &mut sig_count);
@@ -51,7 +51,6 @@ fn main() -> io::Result<()> {
 }
 
 fn scan(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, root: &Path) -> io::Result<()> {
-  writeln!(w, "scanning file system…")?;
   write!(w, "files found: \x1b[s\x1b[?25l")?; // save and hide cursor
   let mut total = 0;
   fs::scan(root, &mut |cwd, r| {
@@ -73,13 +72,12 @@ fn scan(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, root: &Path) -> i
   writeln!(w, "\x1b[?25h")
 }
 
-fn filter_and_count(mut w: impl Write, inputs: &mut Sigs, sigs: &mut Sigs, sig_count: &mut SigCount) -> io::Result<()> {
+fn filter_and_count(inputs: &mut Sigs, sigs: &mut Sigs, sig_count: &mut SigCount) {
   let inputs_sig_count = inputs.iter().fold(SigCount::default(), |mut acc, &(_, sig)| {
     *acc.entry(sig).or_default() += 1;
     acc
   });
 
-  let total = inputs.len();
   let skip = inputs.extract_if(.., |&mut (_, sig @ [meta, _])| {
     let [hash, size] = [meta & HASH_MASK, meta & SIZE_MASK];
     size == 0 || // empty file
@@ -87,13 +85,6 @@ fn filter_and_count(mut w: impl Write, inputs: &mut Sigs, sigs: &mut Sigs, sig_c
       inputs_sig_count.get(&sig).is_some_and(|&n| n < 2) // unique file
   });
   count(skip, sigs, sig_count);
-
-  if let n @ 1.. = total - inputs.len() {
-    writeln!(w)?;
-    writeln!(w, "files skipped: \x1b[92m{n}\x1b[39m \x1b[2m(unique, empty, or already hashed)\x1b[22m")?;
-  }
-
-  Ok(())
 }
 
 fn count(inputs: impl IntoIterator<Item = (Box<Path>, Sig)>, sigs: &mut Sigs, sig_count: &mut SigCount) {
