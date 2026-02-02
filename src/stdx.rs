@@ -1,20 +1,38 @@
 pub mod fmt {
   use std::fmt;
 
-  pub struct Size(pub u64);
+  pub struct Size(pub u64); // bytes
+  pub struct Time(pub u64); // nanoseconds
 
   impl fmt::Display for Size {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      let [s, u] = f.width().map_or([0, 0], |w| [w, 2]);
       let i = (self.0 | 1).ilog2() as usize / 10;
-      let size = self.0 as f64 / (1u64 << 10 * i) as f64;
-      let prec = i.min(1) * 2;
       let unit = ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei"][i];
-      write!(f, "{size:.prec$} {unit}B")
+      let size = self.0 as f64 / (1u64 << 10 * i) as f64;
+      let prec = precision(size, i);
+      write!(f, "{size:s$.prec$} {unit:u$}B")
+    }
+  }
+
+  impl fmt::Display for Time {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      let [s, u] = f.width().map_or([0, 0], |w| [w, 1]);
+      let i = self.0.clamp(1, 1_000_000_000).ilog10() as usize / 3;
+      let unit = ["n", "µ", "m", ""][i];
+      let time = self.0 as f64 / [1e0, 1e3, 1e6, 1e9][i];
+      let prec = precision(time, i);
+      write!(f, "{time:s$.prec$} {unit:u$}s")
     }
   }
 
   pub fn percentage(n: u64, total: u64) -> f64 {
     if total == 0 { 0.0 } else { n as f64 / total as f64 * 100.0 }
+  }
+
+  #[rustfmt::skip]
+  fn precision(value: f64, i: usize) -> usize {
+    match (value, i) { (_, 0) | (99.95.., _) => 0, (9.995.., _) => 1, _ => 2 }
   }
 }
 

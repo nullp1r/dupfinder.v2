@@ -290,12 +290,13 @@ fn show_summary(mut w: impl Write, sig_count: SigCount, [prefix, suffix, full]: 
 
     for (color, name, (count, bytes, t)) in [(2, "prefix", prefix), (2, "suffix", suffix), (3, "full", full)] {
       let s = t.as_secs_f64().max(f64::MIN_POSITIVE);
+      let t = Time(t.as_nanos() as u64);
 
       let size = fmt::Size(bytes);
       let rate = fmt::Size((bytes as f64 / s) as u64);
       let rate_n = count as f64 / s;
 
-      let main = format_args!("computed \x1b[9{color}m{count}\x1b[39m {name} hashes in \x1b[93m{t:.2?}\x1b[39m");
+      let main = format_args!("computed \x1b[9{color}m{count}\x1b[39m {name} hashes in \x1b[93m{t}\x1b[39m");
       let extra = format_args!("\x1b[2m({rate_n:.0} files/s · {rate}/s · {size})\x1b[22m");
       writeln!(w, "{main} {extra}")?;
     }
