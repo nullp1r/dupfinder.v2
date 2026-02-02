@@ -62,9 +62,14 @@ pub mod hash {
     }
   }
 
-  #[derive(Default)]
   pub struct Hasher {
     state: u64,
+  }
+
+  impl Default for Hasher {
+    fn default() -> Self {
+      Self { state: !0 }
+    }
   }
 
   impl hash::Hasher for Hasher {
@@ -74,14 +79,14 @@ pub mod hash {
         self.write_u64(u64::from_ne_bytes(*chunk));
       }
       if let n @ 1.. = tail.len() {
-        let mut chunk = [0xff; _];
+        let mut chunk = [!0; _];
         chunk[..n].copy_from_slice(tail);
         self.write_u64(u64::from_ne_bytes(chunk));
       }
     }
 
     fn write_u64(&mut self, input: u64) {
-      self.state = self.state.wrapping_add(0x9e3779b97f4a7c15) ^ input;
+      self.state = (self.state ^ input).wrapping_mul(0x9e3779b97f4a7c15);
     }
 
     fn finish(&self) -> u64 {
