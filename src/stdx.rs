@@ -10,29 +10,28 @@ pub mod fmt {
       let i = (self.0 | 1).ilog2() as usize / 10;
       let unit = ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei"][i];
       let size = self.0 as f64 / (1u64 << 10 * i) as f64;
-      let prec = precision(size, i);
+      let prec = if i > 0 { precision(size) } else { 0 };
       write!(f, "{size:s$.prec$} {unit:u$}B")
     }
   }
 
   impl fmt::Display for Time {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-      let [s, u] = f.width().map_or([0, 0], |w| [w, 1]);
+      let [t, u] = f.width().map_or([0, 0], |w| [w, 1]);
       let i = self.0.clamp(1, 1_000_000_000).ilog10() as usize / 3;
       let unit = ["n", "µ", "m", ""][i];
       let time = self.0 as f64 / [1e0, 1e3, 1e6, 1e9][i];
-      let prec = precision(time, i);
-      write!(f, "{time:s$.prec$} {unit:u$}s")
+      let prec = if i > 0 { precision(time) } else { 0 };
+      write!(f, "{time:t$.prec$} {unit:u$}s")
     }
   }
 
-  pub fn percentage(n: u64, total: u64) -> f64 {
-    if total == 0 { 0. } else { 1e2 * n as f64 / total as f64 }
-  }
-
-  #[rustfmt::skip]
-  fn precision(value: f64, i: usize) -> usize {
-    match (value, i) { (_, 0) | (99.95.., _) => 0, (9.995.., _) => 1, _ => 2 }
+  fn precision(value: f64) -> usize {
+    match value {
+      99.95.. => 0,
+      9.995.. => 1,
+      _ => 2,
+    }
   }
 }
 
@@ -79,9 +78,7 @@ pub mod hash {
         self.write_u64(u64::from_ne_bytes(*chunk));
       }
       if let n @ 1.. = tail.len() {
-        let mut chunk = [!0; _];
-        chunk[..n].copy_from_slice(tail);
-        self.write_u64(u64::from_ne_bytes(chunk));
+        self.write_u64(tail.iter().rev().fold(n as u64, |acc, &b| acc << 8 | b as u64));
       }
     }
 

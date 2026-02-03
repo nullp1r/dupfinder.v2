@@ -5,9 +5,8 @@ use std::{io, io::prelude::*, mem, thread};
 use crossbeam_channel as channel;
 
 use crate::stdx::fmt::{Size, Time};
-use crate::stdx::fs::FileHash;
+use crate::stdx::fs::{self, FileHash, FileHash::*};
 use crate::stdx::hash::HashMap;
-use crate::stdx::{fmt, fs};
 
 type Sig = [u64; 2]; // [bitflags and file size, file hash]
 type SigCount = HashMap<Sig, u64>;
@@ -44,13 +43,13 @@ impl<W: Write> State<W> {
     self.scan(&mut files)?;
     self.filter_and_count(&mut files);
 
-    let prefix = self.compute_hashes(&mut files, FileHash::Prefix(PARTIAL_HASH_SIZE))?;
+    let prefix = self.compute_hashes(&mut files, Prefix(PARTIAL_HASH_SIZE))?;
     self.filter_and_count(&mut files);
 
-    let suffix = self.compute_hashes(&mut files, FileHash::Suffix(PARTIAL_HASH_SIZE))?;
+    let suffix = self.compute_hashes(&mut files, Suffix(PARTIAL_HASH_SIZE))?;
     self.filter_and_count(&mut files);
 
-    let full = self.compute_hashes(&mut files, FileHash::Full)?;
+    let full = self.compute_hashes(&mut files, Full)?;
     self.count(files);
 
     self.show_duplicates()?;
@@ -231,7 +230,7 @@ impl<W: Write> State<W> {
     let groups = self.errs.chunk_by(|(_, _, e0), (_, _, e1)| {
       let a = (e0.kind(), e0.raw_os_error());
       let b = (e1.kind(), e1.raw_os_error());
-      a == b // group by error kind and OS error code
+      a == b // by error kind and OS error code
     });
 
     for group in groups {
@@ -276,9 +275,11 @@ impl<W: Write> State<W> {
       }
     }
 
+    let percentage = |n, total| if total == 0 { 0. } else { 1e2 * n as f64 / total as f64 };
+
     let (uniq, uniq_n) = (total - dup, total_n - dup_n);
-    let (uniq_pct, uniq_n_pct) = (fmt::percentage(uniq, total), fmt::percentage(uniq_n, total_n));
-    let (dup_pct, dup_n_pct) = (fmt::percentage(dup, total), fmt::percentage(dup_n, total_n));
+    let (uniq_pct, uniq_n_pct) = (percentage(uniq, total), percentage(uniq_n, total_n));
+    let (dup_pct, dup_n_pct) = (percentage(dup, total), percentage(dup_n, total_n));
     let (total, uniq, dup, skipped) = (Size(total), Size(uniq), Size(dup), Size(skipped));
 
     {
