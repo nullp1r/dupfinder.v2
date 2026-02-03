@@ -4,6 +4,7 @@ use std::{env, io, io::prelude::*, mem, thread};
 
 use crossbeam_channel as channel;
 
+use self::stdx::fmt::{Size, Time};
 use self::stdx::fs::FileHash;
 use self::stdx::hash::HashMap;
 use self::stdx::{ansi, fmt, fs};
@@ -45,9 +46,9 @@ fn main() -> io::Result<()> {
   let full = compute_hashes(&mut w, &mut errs, &mut inputs, FileHash::Full)?;
   count(inputs, &mut sigs, &mut sig_count);
 
-  show_duplicates(&mut w, sigs, path)?;
+  show_duplicates(&mut w, &sigs, &sig_count, path)?;
   show_errors(&mut w, errs, path)?;
-  show_summary(&mut w, sig_count, [prefix, suffix, full])
+  show_summary(&mut w, &sig_count, [prefix, suffix, full])
 }
 
 fn scan(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, root: &Path) -> io::Result<()> {
@@ -64,7 +65,7 @@ fn scan(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, root: &Path) -> i
       Ok((path, meta)) => {
         total += meta.len();
         sigs.push((path.into_boxed_path(), [meta.len(), 0]));
-        write!(w, "\x1b[u\x1b[93m{}\x1b[39m \x1b[2m({})\x1b[22m\x1b[K", sigs.len(), fmt::Size(total))?;
+        write!(w, "\x1b[u\x1b[93m{}\x1b[39m \x1b[2m({})\x1b[22m\x1b[K", sigs.len(), Size(total))?;
       }
     };
     Ok(())
@@ -153,10 +154,12 @@ fn compute_hashes(mut w: impl Write, errs: &mut Errors, sigs: &mut Sigs, hash: F
   Ok((inputs_n, bytes, t1 - t0))
 }
 
-fn show_duplicates(mut w: impl Write, sigs: Sigs, root: &Path) -> io::Result<()> {
+fn show_duplicates(mut w: impl Write, sigs: &Sigs, sig_count: &SigCount, root: &Path) -> io::Result<()> {
   let mut path_groups = HashMap::<_, Vec<_>>::default();
-  for (path, sig) in sigs {
-    path_groups.entry(sig).or_default().push(path);
+  for &(ref path, sig @ [_, hash]) in sigs {
+    if hash != 0 && sig_count.get(&sig).is_some_and(|&n| n > 1) {
+      path_groups.entry(sig).or_default().push(&**path);
+    }
   }
 
   let mut path_groups = Vec::from_iter(path_groups);
@@ -167,12 +170,12 @@ fn show_duplicates(mut w: impl Write, sigs: Sigs, root: &Path) -> io::Result<()>
   });
 
   for ([meta, hash], mut group) in path_groups {
-    let len @ 2.. = group.len() else { continue };
+    let len = group.len();
     let mid = len.min(3);
 
     let size = meta & SIZE_MASK;
-    let each = fmt::Size(size);
-    let dup = fmt::Size(size * (len as u64 - 1));
+    let each = Size(size);
+    let dup = Size(size * (len as u64 - 1));
 
     let hash = format_args!("\x1b[96m{hash:016x}\x1b[39m");
     let count = format_args!("\x1b[93m{len}\x1b[39m files");
@@ -182,7 +185,7 @@ fn show_duplicates(mut w: impl Write, sigs: Sigs, root: &Path) -> io::Result<()>
     writeln!(w)?;
     writeln!(w, "{hash}{0}{count}{0}{each}{0}{dup}", " \x1b[2m·\x1b[22m ")?;
 
-    let cmp = |p0: &Box<Path>, p1: &Box<Path>| {
+    let cmp = |p0: &&Path, p1: &&Path| {
       let [c0, c1] = [p0, p1].map(|p| p.components().count());
       let [n0, n1] = [p0, p1].map(|p| p.as_os_str().len());
       (c0, n0, p0).cmp(&(c1, n1, p1)) // by depth, by length, lexicographically
@@ -245,11 +248,11 @@ fn show_errors(mut w: impl Write, mut errs: Errors, root: &Path) -> io::Result<(
   Ok(())
 }
 
-fn show_summary(mut w: impl Write, sig_count: SigCount, [prefix, suffix, full]: [Stats; 3]) -> io::Result<()> {
+fn show_summary(mut w: impl Write, sig_count: &SigCount, [prefix, suffix, full]: [Stats; 3]) -> io::Result<()> {
   let (mut total_n, mut skipped_n, mut dup_n) = (0, 0, 0);
   let (mut total, mut skipped, mut dup) = (0, 0, 0);
 
-  for ([meta, _], count) in sig_count {
+  for (&[meta, _], &count) in sig_count {
     let size = meta & SIZE_MASK;
     total_n += count;
     total += count * size;
@@ -268,7 +271,7 @@ fn show_summary(mut w: impl Write, sig_count: SigCount, [prefix, suffix, full]: 
   let (uniq, uniq_n) = (total - dup, total_n - dup_n);
   let (uniq_pct, uniq_n_pct) = (fmt::percentage(uniq, total), fmt::percentage(uniq_n, total_n));
   let (dup_pct, dup_n_pct) = (fmt::percentage(dup, total), fmt::percentage(dup_n, total_n));
-  let (total, uniq, dup, skipped) = (fmt::Size(total), fmt::Size(uniq), fmt::Size(dup), fmt::Size(skipped));
+  let (total, uniq, dup, skipped) = (Size(total), Size(uniq), Size(dup), Size(skipped));
 
   {
     let total_n = format_args!("\x1b[96m{total_n}\x1b[39m");
@@ -292,8 +295,8 @@ fn show_summary(mut w: impl Write, sig_count: SigCount, [prefix, suffix, full]: 
       let s = t.as_secs_f64().max(f64::MIN_POSITIVE);
       let t = Time(t.as_nanos() as u64);
 
-      let size = fmt::Size(bytes);
-      let rate = fmt::Size((bytes as f64 / s) as u64);
+      let size = Size(bytes);
+      let rate = Size((bytes as f64 / s) as u64);
       let rate_n = count as f64 / s;
 
       let main = format_args!("computed \x1b[9{color}m{count}\x1b[39m {name} hashes in \x1b[93m{t}\x1b[39m");

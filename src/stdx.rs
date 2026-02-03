@@ -27,7 +27,7 @@ pub mod fmt {
   }
 
   pub fn percentage(n: u64, total: u64) -> f64 {
-    if total == 0 { 0.0 } else { n as f64 / total as f64 * 100.0 }
+    if total == 0 { 0. } else { 1e2 * n as f64 / total as f64 }
   }
 
   #[rustfmt::skip]
@@ -40,21 +40,21 @@ pub mod hash {
   use std::sync::atomic::{AtomicU64, Ordering};
   use std::{collections, hash};
 
-  pub type HashMap<K, V> = collections::HashMap<K, V, HasherBuilder>;
+  pub type HashMap<K, V> = collections::HashMap<K, V, Builder>;
 
-  pub struct HasherBuilder {
+  pub struct Builder {
     seed: u64,
   }
 
-  impl Default for HasherBuilder {
+  impl Default for Builder {
     fn default() -> Self {
-      static SEED: AtomicU64 = AtomicU64::new(1);
+      static SEED: AtomicU64 = AtomicU64::new(!0);
 
-      Self { seed: SEED.fetch_add(1, Ordering::Relaxed) }
+      Self { seed: SEED.fetch_sub(1, Ordering::Relaxed) }
     }
   }
 
-  impl hash::BuildHasher for HasherBuilder {
+  impl hash::BuildHasher for Builder {
     type Hasher = Hasher;
 
     fn build_hasher(&self) -> Self::Hasher {
