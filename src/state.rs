@@ -4,6 +4,7 @@ use std::{io, io::prelude::*, mem, thread};
 
 use crossbeam_channel as channel;
 
+use crate::stdx::ansi::progress::Progress;
 use crate::stdx::fmt::{Size, Time};
 use crate::stdx::fs::{self, FileHash, FileHash::*};
 use crate::stdx::hash::HashMap;
@@ -58,25 +59,27 @@ impl<W: Write> State<W> {
   }
 
   fn scan(&mut self, files: &mut Vec<File>) -> io::Result<()> {
-    write!(self.w, "files found: \x1b[s\x1b[?25l")?; // save and hide cursor
     let mut total = 0;
+    let mut progress = Progress::new(&mut self.w, format_args!("files found"))?;
+
     fs::scan(&self.root, &mut |cwd, r| {
       let r = r.map_err(|err| (cwd.to_owned().into_boxed_path(), false, err));
       let r = r.and_then(|(path, file)| match file.metadata() {
         Err(err) => Err((path.into_boxed_path(), true, err)),
         Ok(meta) => Ok((path, meta)),
       });
+
       match r {
         Err(err) => self.errs.push(err),
         Ok((path, meta)) => {
           total += meta.len();
           files.push((path.into_boxed_path(), [meta.len(), 0]));
-          write!(self.w, "\x1b[u\x1b[93m{}\x1b[39m \x1b[2m({})\x1b[22m\x1b[K", files.len(), Size(total))?;
+          progress.update(format_args!("\x1b[93m{}\x1b[39m \x1b[2m({})\x1b[22m", files.len(), Size(total)))?;
         }
       };
+
       Ok(())
-    })?;
-    writeln!(self.w, "\x1b[?25h")
+    })
   }
 
   fn filter_and_count(&mut self, files: &mut Vec<File>) {
@@ -142,8 +145,8 @@ impl<W: Write> State<W> {
     // consumer
     writeln!(self.w)?;
     writeln!(self.w, "computing \x1b[93m{inputs_n}\x1b[39m {name} hashes… \x1b[2m({threads_n} threads)\x1b[22m")?;
-    write!(self.w, "computed: \x1b[93m\x1b[s\x1b[?25l")?; // save and hide cursor
     let t0 = Instant::now();
+    let mut progress = Progress::new(&mut self.w, format_args!("computed"))?;
     let mut bytes = 0;
     for (path, sig) in outputs_rx {
       match sig {
@@ -151,14 +154,13 @@ impl<W: Write> State<W> {
         Ok(sig @ [meta, _]) => {
           files.push((path, sig));
           bytes += max_bytes.min(meta & SIZE_MASK);
-          write!(self.w, "\x1b[u{}\x1b[K", files.len())?;
+          progress.update(format_args!("\x1b[93m{}\x1b[39m", files.len()))?;
         }
       };
     }
     let t1 = Instant::now();
-    writeln!(self.w, "\x1b[?25h\x1b[39m")?;
 
-    Ok((inputs_n, bytes, t1 - t0))
+    Ok((inputs_n, bytes, t1.duration_since(t0)))
   }
 
   fn show_duplicates(&mut self) -> io::Result<()> {

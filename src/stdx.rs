@@ -171,6 +171,52 @@ pub mod fs {
 }
 
 pub mod ansi {
+  pub mod progress {
+    use std::time::{Duration, Instant};
+    use std::{fmt, io, io::prelude::*};
+
+    const TICK: Duration = Duration::new(0, 1_000_000_000 / 50);
+
+    const TAIL_CLEAR: &str = "\x1b[K";
+
+    const CURSOR_HIDE: &str = "\x1b[?25l";
+    const CURSOR_SHOW: &str = "\x1b[?25h";
+    const CURSOR_SAVE: &str = "\x1b[s";
+    const CURSOR_LOAD: &str = "\x1b[u";
+
+    pub struct Progress<W: Write> {
+      w: W,
+      t: Instant,
+    }
+
+    impl<W: Write> Drop for Progress<W> {
+      fn drop(&mut self) {
+        let _ = writeln!(self.w, "{CURSOR_SHOW}");
+      }
+    }
+
+    impl<W: Write> Progress<W> {
+      pub fn new(mut w: W, fmt: fmt::Arguments<'_>) -> io::Result<Self> {
+        write!(w, "{CURSOR_HIDE}{fmt}: {CURSOR_SAVE}")?;
+        w.flush()?;
+
+        Ok(Self { w, t: Instant::now() - TICK })
+      }
+
+      pub fn update(&mut self, fmt: fmt::Arguments<'_>) -> io::Result<()> {
+        write!(self.w, "{CURSOR_LOAD}{fmt}{TAIL_CLEAR}")?;
+
+        let now = Instant::now();
+        if now.duration_since(self.t) >= TICK {
+          self.w.flush()?;
+          self.t = now;
+        }
+
+        Ok(())
+      }
+    }
+  }
+
   #[cfg(not(windows))]
   pub fn enable() {}
 
