@@ -170,7 +170,7 @@ pub mod fs {
   }
 }
 
-pub mod ansi {
+pub mod term {
   pub mod progress {
     use std::fmt::Write as _;
     use std::time::{Duration, Instant};
@@ -222,28 +222,30 @@ pub mod ansi {
     }
   }
 
-  #[cfg(not(windows))]
-  pub fn enable() {}
+  pub mod ansi {
+    #[cfg(not(windows))]
+    pub fn enable() {}
 
-  #[cfg(windows)]
-  pub fn enable() {
-    use windows_sys::Win32::{Foundation::*, System::Console::*};
+    #[cfg(windows)]
+    pub fn enable() {
+      use windows_sys::Win32::{Foundation::*, System::Console::*};
 
-    for id in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
-      unsafe {
-        let h = GetStdHandle(id);
-        if h.is_null() || h == INVALID_HANDLE_VALUE {
-          continue;
-        }
+      for id in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        unsafe {
+          let h = GetStdHandle(id);
+          if h.is_null() || h == INVALID_HANDLE_VALUE {
+            continue;
+          }
 
-        let mut mode = 0;
-        if GetConsoleMode(h, &mut mode) == FALSE {
-          continue;
-        }
+          let mut mode = 0;
+          if GetConsoleMode(h, &mut mode) == FALSE {
+            continue;
+          }
 
-        let mode = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-        if SetConsoleMode(h, mode) == FALSE {
-          continue;
+          let mode = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+          if SetConsoleMode(h, mode) == FALSE {
+            continue;
+          }
         }
       }
     }

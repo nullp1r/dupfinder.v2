@@ -1,7 +1,7 @@
 use std::{env, io};
 
 use self::state::State;
-use self::stdx::ansi;
+use self::stdx::term;
 
 mod state;
 mod stdx;
@@ -11,7 +11,7 @@ fn main() -> io::Result<()> {
   let stdout = io::stdout();
   let w = stdout.lock();
 
-  ansi::enable();
+  term::ansi::enable();
 
   State::new(w, root).run()
 }

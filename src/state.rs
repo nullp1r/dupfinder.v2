@@ -4,10 +4,10 @@ use std::{io, io::prelude::*, mem, thread};
 
 use crossbeam_channel as channel;
 
-use crate::stdx::ansi::progress::Progress;
 use crate::stdx::fmt::{Size, Time};
 use crate::stdx::fs::{self, FileHash, FileHash::*};
 use crate::stdx::hash::HashMap;
+use crate::stdx::term::progress::Progress;
 
 type Sig = [u64; 2]; // [bitflags and file size, file hash]
 type SigCount = HashMap<Sig, u64>;
