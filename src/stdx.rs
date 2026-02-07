@@ -172,13 +172,13 @@ pub mod fs {
 
 pub mod ansi {
   pub mod progress {
+    use std::fmt::Write as _;
     use std::time::{Duration, Instant};
     use std::{fmt, io, io::prelude::*};
 
-    const TICK: Duration = Duration::new(0, 1_000_000_000 / 50);
+    const TICK: Duration = Duration::from_millis(1000 / 50);
 
     const TAIL_CLEAR: &str = "\x1b[K";
-
     const CURSOR_HIDE: &str = "\x1b[?25l";
     const CURSOR_SHOW: &str = "\x1b[?25h";
     const CURSOR_SAVE: &str = "\x1b[s";
@@ -186,12 +186,13 @@ pub mod ansi {
 
     pub struct Progress<W: Write> {
       w: W,
+      s: String,
       t: Instant,
     }
 
     impl<W: Write> Drop for Progress<W> {
       fn drop(&mut self) {
-        let _ = writeln!(self.w, "{CURSOR_SHOW}");
+        let _ = writeln!(self.w, "{CURSOR_LOAD}{}{TAIL_CLEAR}{CURSOR_SHOW}", self.s);
       }
     }
 
@@ -200,14 +201,18 @@ pub mod ansi {
         write!(w, "{CURSOR_HIDE}{fmt}: {CURSOR_SAVE}")?;
         w.flush()?;
 
-        Ok(Self { w, t: Instant::now() - TICK })
+        let s = Default::default();
+        let t = Instant::now() - TICK;
+        Ok(Self { w, s, t })
       }
 
       pub fn update(&mut self, fmt: fmt::Arguments<'_>) -> io::Result<()> {
-        write!(self.w, "{CURSOR_LOAD}{fmt}{TAIL_CLEAR}")?;
+        self.s.clear();
+        let _ = self.s.write_fmt(fmt);
 
         let now = Instant::now();
         if now.duration_since(self.t) >= TICK {
+          write!(self.w, "{CURSOR_LOAD}{}{TAIL_CLEAR}", self.s)?;
           self.w.flush()?;
           self.t = now;
         }
