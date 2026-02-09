@@ -300,9 +300,9 @@ impl<W: Write> State<W> {
 
     if total_n > skipped_n {
       writeln!(self.w)?;
-      writeln!(self.w, "skipped \x1b[96m{skipped_n}\x1b[39m files \x1b[2m({skipped})\x1b[22m")?;
+      writeln!(self.w, "skipped \x1b[93m{skipped_n}\x1b[39m files \x1b[2m({skipped})\x1b[22m")?;
 
-      for (color, name, (count, bytes, t)) in [(2, "prefix", prefix), (2, "suffix", suffix), (3, "full", full)] {
+      for (name, (count, bytes, t)) in [("prefix", prefix), ("suffix", suffix), ("full", full)] {
         let s = t.as_secs_f64().max(f64::MIN_POSITIVE);
         let t = Time(t.as_nanos() as u64);
 
@@ -310,7 +310,7 @@ impl<W: Write> State<W> {
         let rate = Size((bytes as f64 / s) as u64);
         let rate_n = count as f64 / s;
 
-        let main = format_args!("computed \x1b[9{color}m{count}\x1b[39m {name} hashes in \x1b[93m{t}\x1b[39m");
+        let main = format_args!("computed \x1b[93m{count}\x1b[39m {name} hashes in \x1b[93m{t}\x1b[39m");
         let extra = format_args!("\x1b[2m({rate_n:.0} files/s · {rate}/s · {size})\x1b[22m");
         writeln!(self.w, "{main} {extra}")?;
       }
