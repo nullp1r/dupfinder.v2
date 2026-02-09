@@ -1,0 +1,8 @@
+[package]
+name = "dupfinder"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+stdx.workspace = true
+crossbeam-channel = "*"

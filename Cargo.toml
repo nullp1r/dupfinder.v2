@@ -1,6 +1,10 @@
-[package]
-name = "dupfinder"
-version = "0.1.0"
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+default-members = ["crates/app"]
+
+[workspace.package]
+version = "0.0.0"
 edition = "2024"
 
 [profile.release]
@@ -17,8 +21,5 @@ inherits = "release-lto"
 debug = true
 strip = false
 
-[dependencies]
-crossbeam-channel = "*"
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "*", features = ["Win32_System_Console"] }
+[workspace.dependencies]
+stdx = { path = "crates/stdx" }

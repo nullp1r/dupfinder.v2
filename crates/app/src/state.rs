@@ -2,12 +2,12 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use std::{io, io::prelude::*, mem, thread};
 
-use crossbeam_channel as channel;
+use stdx::fmt::{Size, Time};
+use stdx::fs::{self, FileHash, FileHash::*};
+use stdx::hash::HashMap;
+use stdx::term::Progress;
 
-use crate::stdx::fmt::{Size, Time};
-use crate::stdx::fs::{self, FileHash, FileHash::*};
-use crate::stdx::hash::HashMap;
-use crate::stdx::term::progress::Progress;
+use crossbeam_channel as channel;
 
 type Sig = [u64; 2]; // [bitflags and file size, file hash]
 type SigCount = HashMap<Sig, u64>;

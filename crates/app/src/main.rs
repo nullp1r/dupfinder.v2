@@ -1,10 +1,10 @@
 use std::{env, io};
 
+use stdx::term;
+
 use self::state::State;
-use self::stdx::term;
 
 mod state;
-mod stdx;
 
 fn main() -> io::Result<()> {
   let root = env::args_os().nth(1).unwrap_or_else(|| ".".into());
