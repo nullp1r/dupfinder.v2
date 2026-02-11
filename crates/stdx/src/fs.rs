@@ -27,7 +27,7 @@ impl FileHash {
     };
 
     let mut hasher = Hasher::default();
-    let mut buffer = [0; 1 << 17]; // 128 KiB
+    let mut buffer = [0; 1 << 16]; // 64 KiB
     let buffer = self.limited(&mut buffer);
     loop {
       match file.read(buffer)? {
