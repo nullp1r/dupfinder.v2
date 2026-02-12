@@ -285,22 +285,34 @@ impl<W: Write> State<W> {
     let (total, uniq, dup, skipped) = (Size(total), Size(uniq), Size(dup), Size(skipped));
 
     {
-      let total_n = format_args!("\x1b[96m{total_n}\x1b[39m");
-      let uniq_n = format_args!("\x1b[92m{uniq_n}\x1b[39m \x1b[2m({uniq_n_pct:.0}%)\x1b[22m");
-      let dup_n = format_args!("\x1b[93m{dup_n}\x1b[39m \x1b[2m({dup_n_pct:.0}%)\x1b[22m");
-      writeln!(self.w)?;
-      writeln!(self.w, "{total_n} files: {uniq_n} unique and {dup_n} duplicates")?;
+      let [wt, wu, wd] = [total_n, uniq_n, dup_n].map(|n| 1 + n.max(1000).ilog10() as usize);
+      let [w0, w1, w2] = [wt + 8, wu + 12, wd + 12];
 
-      let total = format_args!("\x1b[96m{total}\x1b[39m");
-      let uniq = format_args!("\x1b[92m{uniq}\x1b[39m \x1b[2m({uniq_pct:.0}%)\x1b[22m");
-      let dup = format_args!("\x1b[93m{dup}\x1b[39m \x1b[2m({dup_pct:.0}%)\x1b[22m");
+      let top = format_args!("\x1b[2m┌{:─>w0$}┬{:─>w1$}┬{:─>w2$}┐\x1b[22m", "", "", "");
+      let mid = format_args!("\x1b[2m├{:─>w0$}┼{:─>w1$}┼{:─>w2$}┤\x1b[22m", "", "", "");
+      let bot = format_args!("\x1b[2m└{:─>w0$}┴{:─>w1$}┴{:─>w2$}┘\x1b[22m", "", "", "");
+      let sep = "\x1b[2m│\x1b[22m";
+
+      let total_n = format_args!(" \x1b[96m{total_n:wt$} files\x1b[39m ");
+      let uniq_n = format_args!(" \x1b[92m{uniq_n:wu$} files\x1b[39;2m{uniq_n_pct:3.0}%\x1b[22m ");
+      let dup_n = format_args!(" \x1b[93m{dup_n:wd$} files\x1b[39;2m{dup_n_pct:3.0}%\x1b[22m ");
+
+      let total = format_args!(" \x1b[96m{total:wt$}  \x1b[39m ");
+      let uniq = format_args!(" \x1b[92m{uniq:wu$}  \x1b[39;2m{uniq_pct:3.0}%\x1b[22m ");
+      let dup = format_args!(" \x1b[93m{dup:wd$}  \x1b[39;2m{dup_pct:3.0}%\x1b[22m ");
+
       writeln!(self.w)?;
-      writeln!(self.w, "{total} of data: {uniq} unique and {dup} duplicated")?;
+      writeln!(self.w, "{top}")?;
+      writeln!(self.w, "{sep}{:^w0$}{sep}{:^w1$}{sep}{:^w2$}{sep}", "total", "unique", "duplicated")?;
+      writeln!(self.w, "{mid}")?;
+      writeln!(self.w, "{sep}{total_n}{sep}{uniq_n}{sep}{dup_n}{sep}")?;
+      writeln!(self.w, "{sep}{total}{sep}{uniq}{sep}{dup}{sep}")?;
+      writeln!(self.w, "{bot}")?;
     }
 
     if total_n > skipped_n {
       writeln!(self.w)?;
-      writeln!(self.w, "skipped \x1b[93m{skipped_n}\x1b[39m files \x1b[2m({skipped})\x1b[22m")?;
+      writeln!(self.w, "\x1b[2mskipped {skipped_n} files ({skipped})\x1b[22m")?;
 
       for (name, (count, bytes, t)) in [("prefix", prefix), ("suffix", suffix), ("full", full)] {
         let s = t.as_secs_f64().max(f64::MIN_POSITIVE);
@@ -310,9 +322,9 @@ impl<W: Write> State<W> {
         let rate = Size((bytes as f64 / s) as u64);
         let rate_n = count as f64 / s;
 
-        let main = format_args!("computed \x1b[93m{count}\x1b[39m {name} hashes in \x1b[93m{t}\x1b[39m");
-        let extra = format_args!("\x1b[2m({rate_n:.0} files/s · {rate}/s · {size})\x1b[22m");
-        writeln!(self.w, "{main} {extra}")?;
+        let count = format_args!("computed {count} {name} hashes in {t}");
+        let stats = format_args!("({rate_n:.0} files/s · {rate}/s · {size})");
+        writeln!(self.w, "\x1b[2m{count} {stats}\x1b[22m")?;
       }
     }
 
