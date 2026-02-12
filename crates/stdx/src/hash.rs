@@ -20,11 +20,11 @@ impl Default for Hasher {
 impl Hasher {
   fn bytes(&mut self, input: &[u8]) {
     let (chunks, tail) = input.as_chunks();
-    for &chunk in chunks {
-      self.bits(u64::from_ne_bytes(chunk), 0);
+    for &bytes in chunks {
+      self.bits(u64::from_ne_bytes(bytes), 0);
     }
     if let n @ 1.. = tail.len() {
-      self.bits(tail.iter().rev().fold(0, |a, &b| a << 8 | b as u64), n as u32);
+      self.bits(fold(tail), n as u32);
     }
   }
 
@@ -73,4 +73,27 @@ impl hash::Hasher for Hasher {
   fn write_usize(&mut self, input: usize) {
     self.bits(input as u64, 0);
   }
+}
+
+fn fold(tail: &[u8]) -> u64 {
+  let (u32, carry) = tail.as_chunks();
+  let (u16, u8) = carry.as_chunks();
+  let mut acc = 0;
+
+  if let &[u32] = u32 {
+    let u64 = u32::from_ne_bytes(u32) as u64;
+    acc |= u64 << 8 * (0b000 & tail.len());
+  }
+
+  if let &[u16] = u16 {
+    let u64 = u16::from_ne_bytes(u16) as u64;
+    acc |= u64 << 8 * (0b100 & tail.len());
+  }
+
+  if let &[u8] = u8 {
+    let u64 = u8 as u64;
+    acc |= u64 << 8 * (0b110 & tail.len());
+  }
+
+  acc
 }
