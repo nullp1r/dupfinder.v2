@@ -4,13 +4,12 @@ use std::{io, io::prelude::*, mem, thread};
 
 use stdx::fmt::{Size, Time};
 use stdx::fs::{self, FileHash, FileHash::*};
-use stdx::hash::HashMap;
+use stdx::slice::SliceExt;
 use stdx::term::Progress;
 
 use crossbeam_channel as channel;
 
 type Sig = [u64; 2]; // [bitflags and file size, file hash]
-type SigCount = HashMap<Sig, u64>;
 type File = (Box<Path>, Sig);
 type Stats = (usize, u64, Duration); // (hashes, bytes, time taken)
 type Errors = Vec<(Box<Path>, bool, io::Error)>; // `true` if full path
@@ -28,14 +27,13 @@ pub struct State<W> {
   root: Box<Path>,
   errs: Errors,
   files: Vec<File>,
-  sig_count: SigCount,
 }
 
 impl<W: Write> State<W> {
   pub fn new(w: W, root: impl Into<PathBuf>) -> Self {
     let root = root.into().into_boxed_path();
-    let (errs, files, sig_count) = Default::default();
-    Self { w, root, errs, files, sig_count }
+    let (errs, files) = Default::default();
+    Self { w, root, errs, files }
   }
 
   pub fn run(mut self) -> io::Result<()> {
@@ -83,26 +81,20 @@ impl<W: Write> State<W> {
   }
 
   fn filter_and_count(&mut self, files: &mut Vec<File>) {
-    let inputs_sig_count = files.iter().fold(SigCount::default(), |mut acc, &(_, sig)| {
-      *acc.entry(sig).or_default() += 1;
-      acc
-    });
+    let not_worth_hashing = |&mut (_, [meta, _]): &mut File| {
+      let [size, hash] = [meta & SIZE_MASK, meta & HASH_MASK];
+      size == 0 || size <= PARTIAL_HASH_SIZE && hash != 0
+    };
 
-    let skip = files.extract_if(.., |&mut (_, sig @ [meta, _])| {
-      let [hash, size] = [meta & HASH_MASK, meta & SIZE_MASK];
-      size == 0 || // empty file
-        size <= PARTIAL_HASH_SIZE && hash != 0 || // already fully hashed small file
-        inputs_sig_count.get(&sig).is_some_and(|&n| n < 2) // unique file
-    });
-
-    self.count(skip);
+    files.sort_unstable_by_key(|&(_, sig)| sig);
+    let (unique, _) = files.partition_unique_by_key(|&mut (_, sig)| sig);
+    let (unique, duplicates) = (..unique.len(), unique.len()..);
+    self.count(files.extract_if(duplicates, not_worth_hashing));
+    self.count(files.drain(unique));
   }
 
   fn count(&mut self, files: impl IntoIterator<Item = File>) {
-    for (path, sig) in files {
-      self.files.push((path, sig));
-      *self.sig_count.entry(sig).or_default() += 1;
-    }
+    self.files.extend(files);
   }
 
   fn compute_hashes(&mut self, files: &mut Vec<File>, hash: FileHash) -> io::Result<Stats> {
@@ -118,6 +110,8 @@ impl<W: Write> State<W> {
     let (inputs_tx, inputs_rx) = channel::bounded::<(Box<Path>, Sig)>(threads_n << 8);
     let (outputs_tx, outputs_rx) = channel::bounded::<(Box<Path>, io::Result<Sig>)>(threads_n << 8);
 
+    files.sort_unstable_by(|(path0, _), (path1, _)| path0.cmp(path1));
+
     // n workers
     for _ in 0..threads_n {
       let inputs_rx = inputs_rx.clone();
@@ -129,7 +123,6 @@ impl<W: Write> State<W> {
         }
       });
     }
-
     drop(inputs_rx);
     drop(outputs_tx);
 
@@ -164,49 +157,49 @@ impl<W: Write> State<W> {
   }
 
   fn show_duplicates(&mut self) -> io::Result<()> {
-    let mut path_groups = HashMap::<_, Vec<_>>::default();
-    for &(ref path, sig @ [_, hash]) in &self.files {
-      if hash != 0 && self.sig_count.get(&sig).is_some_and(|&n| n > 1) {
-        path_groups.entry(sig).or_default().push(&**path);
-      }
-    }
-
-    let mut path_groups = Vec::from_iter(path_groups);
-    path_groups.sort_unstable_by(|([meta0, _], group0), ([meta1, _], group1)| {
-      let a = (group0.len() as u64 - 1) * (meta0 & SIZE_MASK);
-      let b = (group1.len() as u64 - 1) * (meta1 & SIZE_MASK);
-      a.cmp(&b) // by total duplicated bytes
+    let mut groups = Vec::from_iter({
+      self.files.sort_unstable_by_key(|&(_, sig)| sig);
+      self.files.chunk_by_mut(|&(_, sig0), &(_, sig1)| sig0 == sig1)
     });
 
-    for ([meta, hash], mut group) in path_groups {
-      let len = group.len();
-      let mid = len.min(3);
+    groups.sort_unstable_by_key(|g| {
+      let size = g.get(0).map_or(0, |&(_, [meta, _])| meta & SIZE_MASK);
+      (g.len() as u64 - 1) * size // by total duplicated bytes
+    });
 
-      let size = meta & SIZE_MASK;
-      let each = Size(size);
-      let dup = Size(size * (len as u64 - 1));
-
-      let hash = format_args!("\x1b[96m{hash:016x}\x1b[39m");
-      let count = format_args!("\x1b[93m{len}\x1b[39m files");
-      let each = format_args!("\x1b[93m{each}\x1b[39m each");
-      let dup = format_args!("\x1b[93m{dup}\x1b[39m duplicated");
-
-      writeln!(self.w)?;
-      writeln!(self.w, "{hash}{0}{count}{0}{each}{0}{dup}", " \x1b[2m·\x1b[22m ")?;
-
-      let cmp = |p0: &&Path, p1: &&Path| {
-        let [c0, c1] = [p0, p1].map(|p| p.components().count());
-        let [n0, n1] = [p0, p1].map(|p| p.as_os_str().len());
-        (c0, n0, p0).cmp(&(c1, n1, p1)) // by depth, by length, lexicographically
-      };
+    for group in groups {
+      let &mut [(_, [meta, hash]), _, ..] = group else { continue };
+      let count = group.len();
+      let show = count.min(3);
 
       let (show, hide) = {
-        let (slice, _, _) = group.select_nth_unstable_by(mid - 1, cmp);
+        let cmp = |(p0, _): &File, (p1, _): &File| {
+          let [c0, c1] = [p0, p1].map(|p| p.components().count());
+          let [n0, n1] = [p0, p1].map(|p| p.as_os_str().len());
+          (c0, n0, p0).cmp(&(c1, n1, p1)) // by depth, by length, lexicographically
+        };
+
+        let (slice, _, _) = group.select_nth_unstable_by(show - 1, cmp);
         slice.sort_unstable_by(cmp);
-        group.split_at(mid)
+        group.split_at(show)
       };
 
-      for (i, path) in show.iter().enumerate() {
+      {
+        let size = meta & SIZE_MASK;
+        let each = Size(size);
+        let dup = Size(size * (count as u64 - 1));
+
+        let hash = format_args!("\x1b[96m{hash:016x}\x1b[39m");
+        let count = format_args!("\x1b[93m{count}\x1b[39m files");
+        let each = format_args!("\x1b[93m{each}\x1b[39m each");
+        let dup = format_args!("\x1b[93m{dup}\x1b[39m duplicated");
+        let sep = "\x1b[2m·\x1b[22m";
+
+        writeln!(self.w)?;
+        writeln!(self.w, "{hash} {sep} {count} {sep} {each} {sep} {dup}")?;
+      }
+
+      for (i, (path, _)) in show.iter().enumerate() {
         let [ansi0, ansi1] = if i == 0 { ["", ""] } else { ["\x1b[2m", "\x1b[22m"] };
         let path = path.strip_prefix(&self.root).unwrap_or(path).display();
         writeln!(self.w, "{ansi0}{path}{ansi1}")?
@@ -236,11 +229,12 @@ impl<W: Write> State<W> {
     });
 
     for group in groups {
-      let (_, _, err) = &group[0];
+      let [(_, _, err), ..] = group else { continue };
+      let show = group.len().min(3);
+      let (show, hide) = group.split_at(show);
+
       writeln!(self.w)?;
       writeln!(self.w, "\x1b[91m{err}:\x1b[39m")?;
-
-      let (show, hide) = group.split_at(group.len().min(3));
 
       for &(ref path, full_path, _) in show {
         let [ansi0, ansi1] = if full_path { ["", ""] } else { ["\x1b[2m", "\x1b[22m"] };
@@ -261,7 +255,13 @@ impl<W: Write> State<W> {
     let (mut total_n, mut skipped_n, mut dup_n) = (0, 0, 0);
     let (mut total, mut skipped, mut dup) = (0, 0, 0);
 
-    for (&[meta, _], &count) in &self.sig_count {
+    self.files.sort_unstable_by_key(|&(_, sig)| sig);
+    let groups = self.files.chunk_by(|&(_, sig0), &(_, sig1)| sig0 == sig1);
+
+    for group in groups {
+      let [(_, [meta, _]), ..] = group else { continue };
+      let count = group.len() as u64;
+
       let size = meta & SIZE_MASK;
       total_n += count;
       total += count * size;
