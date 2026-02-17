@@ -119,7 +119,7 @@ impl<W: Write> State<W> {
       thread::spawn(move || {
         for (path, [meta, _]) in inputs_rx {
           let sig = hash.compute(&path).map(|hash| [meta | marker_bit, hash]);
-          let _ = outputs_tx.send((path, sig));
+          let Ok(_) = outputs_tx.send((path, sig)) else { break };
         }
       });
     }
@@ -131,7 +131,7 @@ impl<W: Write> State<W> {
     let inputs_n = inputs.len();
     thread::spawn(move || {
       for input in inputs {
-        let _ = inputs_tx.send(input);
+        let Ok(_) = inputs_tx.send(input) else { break };
       }
     });
 
