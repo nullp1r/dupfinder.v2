@@ -24,23 +24,27 @@ impl<T> SliceExt<T> for [T] {
   where
     F: FnMut(&mut T, &mut T) -> bool,
   {
-    let ptr = self.as_mut_ptr();
-    let len = self.len();
-    let (mut r, mut w) = (0, 0);
+    assert!(size_of::<T>() != 0, "ZSTs are not supported");
 
-    while r < len {
-      let end = (r + 1..len) //.
-        .find(|&i| unsafe { !same_bucket(&mut *ptr.add(r), &mut *ptr.add(i)) })
-        .unwrap_or(len);
+    unsafe {
+      let start = self.as_mut_ptr();
+      let end = start.add(self.len());
+      let (mut read, mut write) = (start, start);
 
-      if let 1 = end - r {
-        unsafe { ptr.add(r).swap(ptr.add(w)) };
-        w += 1;
+      while read < end {
+        let mut cursor = read.add(1);
+        while cursor < end && same_bucket(&mut *read, &mut *cursor) {
+          cursor = cursor.add(1);
+        }
+        if let 1 = cursor.offset_from(read) {
+          write.swap(read);
+          write = write.add(1);
+        }
+        read = cursor;
       }
 
-      r = end;
+      let mid = write.offset_from(start) as usize;
+      self.split_at_mut_unchecked(mid)
     }
-
-    unsafe { self.split_at_mut_unchecked(w) }
   }
 }
