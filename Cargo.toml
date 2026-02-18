@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-default-members = ["crates/app"]
+default-members = ["crates/bin"]
 
 [workspace.package]
 version = "0.0.0"
