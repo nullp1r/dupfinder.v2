@@ -100,60 +100,62 @@ impl<W: Write> State<W> {
   fn compute_hashes(&mut self, files: &mut Vec<File>, hash: FileHash) -> io::Result<Stats> {
     let 1.. = files.len() else { return Ok(Default::default()) };
 
+    files.sort_unstable_by(|(path0, _), (path1, _)| path0.cmp(path1));
+
     let (name, marker_bit, max_bytes) = match hash {
       FileHash::Full => ("full", HASH_FULL, u64::MAX),
       FileHash::Prefix(_) => ("prefix", HASH_PREF, PARTIAL_HASH_SIZE),
       FileHash::Suffix(_) => ("suffix", HASH_SUFF, PARTIAL_HASH_SIZE),
     };
 
+    let inputs = mem::take(files);
+    let inputs_n = inputs.len();
     let threads_n = thread::available_parallelism()?.get();
     let (inputs_tx, inputs_rx) = channel::bounded::<(Box<Path>, Sig)>(threads_n << 8);
     let (outputs_tx, outputs_rx) = channel::bounded::<(Box<Path>, io::Result<Sig>)>(threads_n << 8);
 
-    files.sort_unstable_by(|(path0, _), (path1, _)| path0.cmp(path1));
+    thread::scope(|scope| {
+      // n workers
+      for _ in 0..threads_n {
+        let inputs_rx = inputs_rx.clone();
+        let outputs_tx = outputs_tx.clone();
+        scope.spawn(move || {
+          for (path, [meta, _]) in inputs_rx {
+            let sig = hash.compute(&path).map(|hash| [meta | marker_bit, hash]);
+            let Ok(_) = outputs_tx.send((path, sig)) else { break };
+          }
+        });
+      }
+      drop(inputs_rx);
+      drop(outputs_tx);
 
-    // n workers
-    for _ in 0..threads_n {
-      let inputs_rx = inputs_rx.clone();
-      let outputs_tx = outputs_tx.clone();
-      thread::spawn(move || {
-        for (path, [meta, _]) in inputs_rx {
-          let sig = hash.compute(&path).map(|hash| [meta | marker_bit, hash]);
-          let Ok(_) = outputs_tx.send((path, sig)) else { break };
+      // producer
+      scope.spawn(move || {
+        for input in inputs {
+          let Ok(_) = inputs_tx.send(input) else { break };
         }
       });
-    }
-    drop(inputs_rx);
-    drop(outputs_tx);
 
-    // producer
-    let inputs = mem::take(files);
-    let inputs_n = inputs.len();
-    thread::spawn(move || {
-      for input in inputs {
-        let Ok(_) = inputs_tx.send(input) else { break };
+      // consumer
+      writeln!(self.w)?;
+      writeln!(self.w, "computing \x1b[93m{inputs_n}\x1b[39m {name} hashes… \x1b[2m({threads_n} threads)\x1b[22m")?;
+      let mut progress = Progress::new(&mut self.w, format_args!("computed"))?;
+      let mut bytes = 0;
+      let t0 = Instant::now();
+      for (path, sig) in outputs_rx {
+        match sig {
+          Err(err) => self.errs.push((path, true, err)),
+          Ok(sig @ [meta, _]) => {
+            files.push((path, sig));
+            bytes += max_bytes.min(meta & SIZE_MASK);
+            progress.update(format_args!("\x1b[93m{}\x1b[39m", files.len()))?;
+          }
+        };
       }
-    });
+      let t1 = Instant::now();
 
-    // consumer
-    writeln!(self.w)?;
-    writeln!(self.w, "computing \x1b[93m{inputs_n}\x1b[39m {name} hashes… \x1b[2m({threads_n} threads)\x1b[22m")?;
-    let t0 = Instant::now();
-    let mut progress = Progress::new(&mut self.w, format_args!("computed"))?;
-    let mut bytes = 0;
-    for (path, sig) in outputs_rx {
-      match sig {
-        Err(err) => self.errs.push((path, true, err)),
-        Ok(sig @ [meta, _]) => {
-          files.push((path, sig));
-          bytes += max_bytes.min(meta & SIZE_MASK);
-          progress.update(format_args!("\x1b[93m{}\x1b[39m", files.len()))?;
-        }
-      };
-    }
-    let t1 = Instant::now();
-
-    Ok((inputs_n, bytes, t1.duration_since(t0)))
+      Ok((inputs_n, bytes, t1.duration_since(t0)))
+    })
   }
 
   fn show_duplicates(&mut self) -> io::Result<()> {
