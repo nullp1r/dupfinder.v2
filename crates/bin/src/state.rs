@@ -247,8 +247,8 @@ impl<W: Write> State<W> {
   }
 
   fn show_summary(&mut self, [prefix, suffix, full]: [Stats; 3]) -> io::Result<()> {
-    let (mut total_n, mut skipped_n, mut dup_n) = (0, 0, 0);
-    let (mut total, mut skipped, mut dup) = (0, 0, 0);
+    let (mut total_n, mut skipped_n, mut unique_n, mut delete_n) = (0, 0, 0, 0);
+    let (mut total, mut skipped, mut unique, mut delete) = (0, 0, 0, 0);
 
     self.files.sort_unstable_by_key(|&(_, sig)| sig);
     let groups = self.files.chunk_by(|&(_, sig0), &(_, sig1)| sig0 == sig1);
@@ -260,47 +260,55 @@ impl<W: Write> State<W> {
       total_n += count;
       total += count * size;
 
-      if let 2.. = count {
-        dup_n += count - 1;
-        dup += (count - 1) * size;
-      }
-
       if let 0 = hash {
         skipped_n += count;
         skipped += count * size;
+      }
+
+      if let 1 = count {
+        unique_n += count;
+        unique += count * size;
+      }
+
+      if let 2.. = count {
+        delete_n += count - 1;
+        delete += (count - 1) * size;
       }
     }
 
     let percentage = |n, total| if total == 0 { 0. } else { 1e2 * n as f64 / total as f64 };
 
-    let (uniq, uniq_n) = (total - dup, total_n - dup_n);
-    let (uniq_pct, uniq_n_pct) = (percentage(uniq, total), percentage(uniq_n, total_n));
-    let (dup_pct, dup_n_pct) = (percentage(dup, total), percentage(dup_n, total_n));
-    let (total, uniq, dup, skipped) = (Size(total), Size(uniq), Size(dup), Size(skipped));
+    let (keep, keep_n) = (total - unique - delete, total_n - unique_n - delete_n);
+    let (unique_pct, unique_n_pct) = (percentage(unique, total), percentage(unique_n, total_n));
+    let (keep_pct, keep_n_pct) = (percentage(keep, total), percentage(keep_n, total_n));
+    let (delete_pct, delete_n_pct) = (percentage(delete, total), percentage(delete_n, total_n));
+    let (total, unique, keep, delete, skipped) = (Size(total), Size(unique), Size(keep), Size(delete), Size(skipped));
 
     {
-      let [wt, wu, wd] = [total_n, uniq_n, dup_n].map(|n| 1 + n.max(1000).ilog10() as usize);
-      let [w0, w1, w2] = [wt + 8, wu + 12, wd + 12];
+      let [wt, wu, wk, wd] = [total_n, unique_n, keep_n, delete_n].map(|n| 1 + n.max(1000).ilog10() as usize);
+      let [w0, w1, w2, w3, w12] = [wt + 8, wu + 12, wk + 12, wd + 12, wu + wk + 25];
 
-      let top = format_args!("\x1b[2m┌{:─>w0$}┬{:─>w1$}┬{:─>w2$}┐\x1b[22m", "", "", "");
-      let mid = format_args!("\x1b[2m├{:─>w0$}┼{:─>w1$}┼{:─>w2$}┤\x1b[22m", "", "", "");
-      let bot = format_args!("\x1b[2m└{:─>w0$}┴{:─>w1$}┴{:─>w2$}┘\x1b[22m", "", "", "");
       let sep = "\x1b[2m│\x1b[22m";
+      let top = format_args!("\x1b[2m┌{:─>w0$}┬{:─>w1$}─{:─>w2$}┬{:─>w3$}┐\x1b[22m", "", "", "", "");
+      let mid = format_args!("\x1b[2m├{:─>w0$}┼{:─>w1$}┬{:─>w2$}┼{:─>w3$}┤\x1b[22m", "", "", "", "");
+      let bot = format_args!("\x1b[2m└{:─>w0$}┴{:─>w1$}┴{:─>w2$}┴{:─>w3$}┘\x1b[22m", "", "", "", "");
 
       let total_n = format_args!(" \x1b[96m{total_n:wt$} files\x1b[39m ");
-      let uniq_n = format_args!(" \x1b[92m{uniq_n:wu$} files\x1b[39;2m{uniq_n_pct:3.0}%\x1b[22m ");
-      let dup_n = format_args!(" \x1b[93m{dup_n:wd$} files\x1b[39;2m{dup_n_pct:3.0}%\x1b[22m ");
+      let unique_n = format_args!(" \x1b[92m{unique_n:wu$} files\x1b[39;2m{unique_n_pct:3.0}%\x1b[22m ");
+      let keep_n = format_args!(" \x1b[93m{keep_n:wk$} files\x1b[39;2m{keep_n_pct:3.0}%\x1b[22m ");
+      let delete_n = format_args!(" \x1b[91m{delete_n:wd$} files\x1b[39;2m{delete_n_pct:3.0}%\x1b[22m ");
 
       let total = format_args!(" \x1b[96m{total:wt$}  \x1b[39m ");
-      let uniq = format_args!(" \x1b[92m{uniq:wu$}  \x1b[39;2m{uniq_pct:3.0}%\x1b[22m ");
-      let dup = format_args!(" \x1b[93m{dup:wd$}  \x1b[39;2m{dup_pct:3.0}%\x1b[22m ");
+      let unique = format_args!(" \x1b[92m{unique:wu$}  \x1b[39;2m{unique_pct:3.0}%\x1b[22m ");
+      let keep = format_args!(" \x1b[93m{keep:wk$}  \x1b[39;2m{keep_pct:3.0}%\x1b[22m ");
+      let delete = format_args!(" \x1b[91m{delete:wd$}  \x1b[39;2m{delete_pct:3.0}%\x1b[22m ");
 
       writeln!(self.w)?;
       writeln!(self.w, "{top}")?;
-      writeln!(self.w, "{sep}{:^w0$}{sep}{:^w1$}{sep}{:^w2$}{sep}", "total", "unique", "duplicated")?;
+      writeln!(self.w, "{sep}{:^w0$}{sep}{:^w12$}{sep}{:^w3$}{sep}", "total", "unique and potentially unique", "duplicates")?;
       writeln!(self.w, "{mid}")?;
-      writeln!(self.w, "{sep}{total_n}{sep}{uniq_n}{sep}{dup_n}{sep}")?;
-      writeln!(self.w, "{sep}{total}{sep}{uniq}{sep}{dup}{sep}")?;
+      writeln!(self.w, "{sep}{total_n}{sep}{unique_n}{sep}{keep_n}{sep}{delete_n}{sep}")?;
+      writeln!(self.w, "{sep}{total}{sep}{unique}{sep}{keep}{sep}{delete}{sep}")?;
       writeln!(self.w, "{bot}")?;
     }
 
