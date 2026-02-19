@@ -9,19 +9,13 @@ use stdx::term::Progress;
 
 use crossbeam_channel as channel;
 
-type Sig = [u64; 2]; // [bitflags and file size, file hash]
+type Sig = [u64; 2]; // [file size, file hash]
 type File = (Box<Path>, Sig);
 type Error = (Box<Path>, bool, io::Error); // `true` if full path
 type Stats = (usize, u64, Duration); // (hashes, bytes, time taken)
 
 const PATHS_PER_ENTRY: usize = 3;
 const PARTIAL_HASH_SIZE: u64 = 1 << 12; // 4 KiB
-
-const HASH_PREF: u64 = 0b100 << 61;
-const HASH_SUFF: u64 = 0b010 << 61;
-const HASH_FULL: u64 = 0b001 << 61;
-const HASH_MASK: u64 = 0b111 << 61;
-const SIZE_MASK: u64 = !HASH_MASK;
 
 pub struct State<W> {
   w: W,
@@ -82,9 +76,8 @@ impl<W: Write> State<W> {
   }
 
   fn filter_and_collect(&mut self, files: &mut Vec<File>) {
-    let filter = |&mut (_, [meta, _]): &mut File| {
-      let [size, hash] = [meta & SIZE_MASK, meta & HASH_MASK];
-      size == 0 || size <= PARTIAL_HASH_SIZE && hash != 0
+    let filter = |&mut (_, [size, hash]): &mut File| {
+      size == 0 || size <= PARTIAL_HASH_SIZE && hash != 0 // empty or fully hashed small files
     };
 
     files.sort_unstable_by_key(|&(_, sig)| sig);
@@ -103,10 +96,10 @@ impl<W: Write> State<W> {
 
     files.sort_unstable_by(|(path0, _), (path1, _)| path0.cmp(path1));
 
-    let (name, marker_bit, max_bytes) = match hash {
-      FileHash::Full => ("full", HASH_FULL, u64::MAX),
-      FileHash::Prefix(_) => ("prefix", HASH_PREF, PARTIAL_HASH_SIZE),
-      FileHash::Suffix(_) => ("suffix", HASH_SUFF, PARTIAL_HASH_SIZE),
+    let (hash_type, max_bytes) = match hash {
+      FileHash::Full => ("full", u64::MAX),
+      FileHash::Prefix(_) => ("prefix", PARTIAL_HASH_SIZE),
+      FileHash::Suffix(_) => ("suffix", PARTIAL_HASH_SIZE),
     };
 
     let inputs = mem::take(files);
@@ -122,7 +115,7 @@ impl<W: Write> State<W> {
         let outputs_tx = outputs_tx.clone();
         scope.spawn(move || {
           for (path, [meta, _]) in inputs_rx {
-            let sig = hash.compute(&path).map(|hash| [meta | marker_bit, hash]);
+            let sig = hash.compute(&path).map(|hash| [meta, hash]);
             let Ok(_) = outputs_tx.send((path, sig)) else { break };
           }
         });
@@ -139,16 +132,16 @@ impl<W: Write> State<W> {
 
       // consumer
       writeln!(self.w)?;
-      writeln!(self.w, "computing \x1b[93m{inputs_n}\x1b[39m {name} hashes… \x1b[2m({threads_n} threads)\x1b[22m")?;
+      writeln!(self.w, "computing \x1b[93m{inputs_n}\x1b[39m {hash_type} hashes… \x1b[2m({threads_n} threads)\x1b[22m")?;
       let mut progress = Progress::new(&mut self.w, format_args!("computed"))?;
       let mut bytes = 0;
       let t0 = Instant::now();
       for (path, sig) in outputs_rx {
         match sig {
           Err(err) => self.errs.push((path, true, err)),
-          Ok(sig @ [meta, _]) => {
+          Ok(sig @ [size, _]) => {
             files.push((path, sig));
-            bytes += max_bytes.min(meta & SIZE_MASK);
+            bytes += max_bytes.min(size);
             progress.update(format_args!("\x1b[93m{}\x1b[39m", files.len()))?;
           }
         };
@@ -166,12 +159,12 @@ impl<W: Write> State<W> {
     });
 
     groups.sort_unstable_by_key(|paths| {
-      let meta = if let &&mut [(_, [meta, _]), ..] = paths { meta } else { 0 };
-      (paths.len() as u64 - 1) * (meta & SIZE_MASK) // by total duplicated bytes
+      let size = if let &&mut [(_, [size, _]), ..] = paths { size } else { 0 };
+      (paths.len() as u64 - 1) * size // by total duplicated bytes
     });
 
     for paths in groups {
-      let &mut [(_, [meta, hash]), _, ..] = paths else { continue };
+      let &mut [(_, [size, hash]), _, ..] = paths else { continue };
       let count = paths.len();
       let show = count.min(PATHS_PER_ENTRY);
 
@@ -188,7 +181,6 @@ impl<W: Write> State<W> {
       };
 
       {
-        let size = meta & SIZE_MASK;
         let each = Size(size);
         let dup = Size(size * (count as u64 - 1));
 
@@ -262,19 +254,18 @@ impl<W: Write> State<W> {
     let groups = self.files.chunk_by(|&(_, sig0), &(_, sig1)| sig0 == sig1);
 
     for group in groups {
-      let [(_, [meta, _]), ..] = group else { continue };
+      let &[(_, [size, hash]), ..] = group else { continue };
       let count = group.len() as u64;
 
-      let size = meta & SIZE_MASK;
       total_n += count;
       total += count * size;
 
-      if count > 1 {
+      if let 2.. = count {
         dup_n += count - 1;
         dup += (count - 1) * size;
       }
 
-      if meta & HASH_MASK == 0 {
+      if let 0 = hash {
         skipped_n += count;
         skipped += count * size;
       }
