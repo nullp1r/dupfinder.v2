@@ -14,8 +14,10 @@ type File = (Box<Path>, Sig);
 type Error = (Box<Path>, bool, io::Error); // `true` if full path
 type Stats = (usize, u64, Duration); // (hashes, bytes, time taken)
 
-const PATHS_PER_ENTRY: usize = 3;
 const PARTIAL_HASH_SIZE: u64 = 1 << 12; // 4 KiB
+
+const MAX_RESULTS: usize = 100;
+const MAX_PATHS: usize = 3;
 
 pub struct State<W> {
   w: W,
@@ -158,15 +160,27 @@ impl<W: Write> State<W> {
       self.files.chunk_by_mut(|&(_, sig0), &(_, sig1)| sig0 == sig1)
     });
 
-    groups.sort_unstable_by_key(|paths| {
-      let size = if let &&mut [(_, [size, _]), ..] = paths { size } else { 0 };
-      (paths.len() as u64 - 1) * size // by total duplicated bytes
-    });
+    let (hide, show) = {
+      let hide = groups.len().saturating_sub(MAX_RESULTS);
+      let key = |paths: &&mut [File]| {
+        let size = if let &&mut [(_, [size, _]), ..] = paths { size } else { 0 };
+        (paths.len() as u64 - 1) * size // by total duplicated bytes
+      };
 
-    for paths in groups {
-      let &mut [(_, [size, hash]), _, ..] = paths else { continue };
+      let (_, _, slice) = groups.select_nth_unstable_by_key(hide, key);
+      slice.sort_unstable_by_key(key);
+      groups.split_at_mut(hide)
+    };
+
+    if let (show, hide @ 1..) = (show.len(), hide.len()) {
+      writeln!(self.w)?;
+      writeln!(self.w, "showing top \x1b[93m{show}\x1b[39m results… \x1b[2m({} total)\x1b[22m", show + hide)?;
+    }
+
+    for paths in show {
+      let &mut &mut [(_, [size, hash]), _, ..] = paths else { continue };
       let count = paths.len();
-      let show = count.min(PATHS_PER_ENTRY);
+      let show = count.min(MAX_PATHS);
 
       let (show, hide) = {
         let cmp = |(p0, _): &File, (p1, _): &File| {
@@ -225,7 +239,7 @@ impl<W: Write> State<W> {
 
     for paths in groups {
       let [(_, _, err), ..] = paths else { continue };
-      let show = paths.len().min(PATHS_PER_ENTRY);
+      let show = paths.len().min(MAX_PATHS);
       let (show, hide) = paths.split_at(show);
 
       writeln!(self.w)?;
