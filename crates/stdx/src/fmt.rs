@@ -9,7 +9,7 @@ impl fmt::Display for Size {
     let i = self.0.max(1).ilog2() as usize / 10;
     let unit = ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei"][i];
     let size = self.0 as f64 / (1u64 << 10 * i) as f64;
-    let prec = if i > 0 { precision(size) } else { 0 };
+    let prec = i.min(1) * precision::<3>(size);
     write!(f, "{size:s$.prec$} {unit:u$}B")
   }
 }
@@ -20,15 +20,15 @@ impl fmt::Display for Time {
     let i = self.0.max(1).ilog10().min(9) as usize / 3;
     let unit = ["n", "µ", "m", ""][i];
     let time = self.0 as f64 / [1e0, 1e3, 1e6, 1e9][i];
-    let prec = if i > 0 { precision(time) } else { 0 };
+    let prec = i.min(1) * precision::<3>(time);
     write!(f, "{time:t$.prec$} {unit:u$}s")
   }
 }
 
-fn precision(value: f64) -> usize {
-  match value {
-    99.95.. => 0,
-    9.995.. => 1,
-    _ => 2,
-  }
+fn precision<const N: u32>(n: f64) -> usize {
+  let num = 10u64.pow(N + 1) - 5;
+  (2..=N).fold(0, |acc, i| {
+    let threshold = num as f64 / 10u64.pow(i) as f64;
+    acc + !(threshold <= n) as usize
+  })
 }
