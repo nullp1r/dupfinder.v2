@@ -8,7 +8,7 @@ use stdx::slice::SliceExt;
 
 use crossbeam_channel as channel;
 
-use crate::term::Progress;
+use crate::term::{Progress, ProgressBar};
 
 type Sig = [u64; 2]; // [file size, file hash]
 type File = (Box<Path>, Sig);
@@ -136,7 +136,8 @@ impl<W: Write> State<W> {
       // consumer
       writeln!(self.w)?;
       writeln!(self.w, "computing \x1b[93m{inputs_n}\x1b[39m {hash_type} hashes… \x1b[2m({threads_n} threads)\x1b[22m")?;
-      let mut progress = Progress::new(&mut self.w, format_args!("computed"))?;
+      let mut progress = ProgressBar::new(&mut self.w, inputs_n)?;
+      let mut count = 0;
       let mut bytes = 0;
       let t0 = Instant::now();
       for (path, sig) in outputs_rx {
@@ -145,13 +146,14 @@ impl<W: Write> State<W> {
           Ok(sig @ [size, _]) => {
             files.push((path, sig));
             bytes += max_bytes.min(size);
-            progress.update(format_args!("\x1b[93m{}\x1b[39m", files.len()))?;
           }
         };
+        count += 1;
+        progress.update(count)?;
       }
       let t1 = Instant::now();
 
-      Ok((inputs_n, bytes, t1.duration_since(t0)))
+      Ok((count, bytes, t1.duration_since(t0)))
     })
   }
 

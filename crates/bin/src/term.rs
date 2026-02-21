@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 use std::{fmt, io, io::prelude::*};
 
-const TICK: Duration = Duration::from_millis(1000 / 50);
+const TICK: Duration = Duration::from_nanos(1_000_000_000 / 60);
 
 const TAIL_CLEAR: &str = "\x1b[K";
 const CURSOR_HIDE: &str = "\x1b[?25l";
@@ -44,6 +44,75 @@ impl<W: Write> Progress<W> {
     }
 
     Ok(())
+  }
+}
+
+pub struct ProgressBar<'a, W: Write> {
+  w: &'a mut W,
+  s: String,
+  t: Instant,
+  cur: usize,
+  max: usize,
+}
+
+impl<W: Write> Drop for ProgressBar<'_, W> {
+  fn drop(&mut self) {
+    let _ = self.render();
+    let _ = writeln!(self.w, "{CURSOR_SHOW}");
+  }
+}
+
+impl<'a, W: Write> ProgressBar<'a, W> {
+  pub fn new(w: &'a mut W, max: usize) -> io::Result<Self> {
+    write!(w, "{CURSOR_HIDE}")?;
+    let s = Default::default();
+    let t = Instant::now() - TICK;
+    Ok(Self { w, s, t, cur: 0, max })
+  }
+
+  pub fn update(&mut self, n: usize) -> io::Result<()> {
+    self.cur = n;
+    let now = Instant::now();
+    if now.duration_since(self.t) >= TICK {
+      self.t = now;
+      self.render()?;
+    }
+    Ok(())
+  }
+
+  fn render(&mut self) -> io::Result<()> {
+    #[cfg(windows)]
+    const N: usize = 4;
+    #[cfg(not(windows))]
+    const N: usize = 8;
+    const W: usize = 50;
+
+    let max = self.max.max(1);
+    let cur = self.cur.min(max);
+
+    let n = N * W * cur / max;
+    let [filled, rem] = [n / N, n % N];
+    let empty = W - filled;
+
+    #[cfg(windows)]
+    let utf8 = [0xe2, 0x96, 0x90 + rem as u8]; // U+2591..=U+2593
+    #[cfg(not(windows))]
+    let utf8 = [0xe2, 0x96, 0x8f - rem as u8]; // U+2589..=U+258F
+    let mid = unsafe { str::from_utf8_unchecked(&utf8) };
+    let mid = if let 0 = rem { "" } else { mid };
+
+    let color = if cur == max { 2 } else { 3 };
+    let pad = max.ilog10() as usize + 1;
+    let pct = 100 * cur / max;
+
+    let bar = format_args!("\x1b[9{color};40m{:█>filled$}{mid:<empty$}\x1b[49m {pct:3}%\x1b[39m", "");
+    let count = format_args!("\x1b[2m({:pad$} / {})\x1b[22m", self.cur, self.max);
+
+    self.s.clear();
+    let _ = write!(self.s, "\r{bar} {count}");
+
+    self.w.write_all(self.s.as_bytes())?;
+    self.w.flush()
   }
 }
 
