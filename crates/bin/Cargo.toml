@@ -6,3 +6,6 @@ edition.workspace = true
 [dependencies]
 stdx.workspace = true
 crossbeam-channel = "*"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "*", features = ["Win32_System_Console"] }

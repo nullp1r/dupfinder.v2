@@ -5,9 +5,10 @@ use std::{io, io::prelude::*, mem, thread};
 use stdx::fmt::{Size, Time};
 use stdx::fs::{self, FileHash};
 use stdx::slice::SliceExt;
-use stdx::term::Progress;
 
 use crossbeam_channel as channel;
+
+use crate::term::Progress;
 
 type Sig = [u64; 2]; // [file size, file hash]
 type File = (Box<Path>, Sig);

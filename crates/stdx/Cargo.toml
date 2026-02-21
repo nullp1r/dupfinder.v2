@@ -2,6 +2,3 @@
 name = "stdx"
 version.workspace = true
 edition.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "*", features = ["Win32_System_Console"] }

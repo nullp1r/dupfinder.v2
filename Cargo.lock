@@ -23,14 +23,12 @@ version = "0.0.0"
 dependencies = [
  "crossbeam-channel",
  "stdx",
+ "windows-sys",
 ]
 
 [[package]]
 name = "stdx"
 version = "0.0.0"
-dependencies = [
- "windows-sys",
-]
 
 [[package]]
 name = "windows-link"
