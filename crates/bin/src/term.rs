@@ -81,10 +81,7 @@ impl<'a, W: Write> ProgressBar<'a, W> {
   }
 
   fn render(&mut self) -> io::Result<()> {
-    #[cfg(windows)]
-    const N: usize = 4;
-    #[cfg(not(windows))]
-    const N: usize = 8;
+    const N: usize = cfg_select! { windows => 4, _ => 8 };
     const W: usize = 50;
 
     let max = self.max.max(1);
@@ -94,10 +91,8 @@ impl<'a, W: Write> ProgressBar<'a, W> {
     let [filled, rem] = [n / N, n % N];
     let empty = W - filled;
 
-    #[cfg(windows)]
-    let utf8 = [0xe2, 0x96, 0x90 + rem as u8]; // U+2591..=U+2593
-    #[cfg(not(windows))]
-    let utf8 = [0xe2, 0x96, 0x8f - rem as u8]; // U+2589..=U+258F
+    // windows => U+2591..=U+2593, _ => U+2589..=U+258F
+    let utf8 = [0xe2, 0x96, cfg_select! { windows => 0x90 + rem, _ => 0x8f - rem } as u8];
     let mid = unsafe { str::from_utf8_unchecked(&utf8) };
     let mid = if let 0 = rem { "" } else { mid };
 

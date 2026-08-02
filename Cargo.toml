@@ -23,3 +23,5 @@ strip = false
 
 [workspace.dependencies]
 stdx = { path = "crates/stdx" }
+crossbeam-channel = "*"
+windows-sys = { version = "*", features = ["Win32_System_Console"] }
