@@ -25,7 +25,7 @@ impl fmt::Display for Time {
   }
 }
 
-fn precision<const N: u32>(n: f64) -> usize {
+pub fn precision<const N: u32>(n: f64) -> usize {
   let num = 10u64.pow(N + 1) - 5;
   (2..=N).fold(0, |acc, i| {
     let threshold = num as f64 / 10u64.pow(i) as f64;
