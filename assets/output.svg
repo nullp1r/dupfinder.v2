@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 680" width="720" height="680">
+  <rect width="100%" height="100%" class="bg" rx="8" />
+
+  <text class="mono fg" xml:space="preserve">
+    <tspan x="20" y="34">files found: <tspan class="_93">31</tspan> <tspan class="_2">(315 MiB)</tspan></tspan>
+
+    <tspan x="20" dy="40">computing <tspan class="_93">29</tspan> prefix hashes… <tspan class="_2">(4 threads)</tspan></tspan>
+    <tspan x="20" dy="20"><tspan class="_92">██████████████████████████████████████████████████</tspan> <tspan class="_92">100%</tspan> <tspan class="_2">(29 / 29)</tspan></tspan>
+
+    <tspan x="20" dy="40">computing <tspan class="_93">8</tspan> suffix hashes… <tspan class="_2">(4 threads)</tspan></tspan>
+    <tspan x="20" dy="20"><tspan class="_92">██████████████████████████████████████████████████</tspan> <tspan class="_92">100%</tspan> <tspan class="_2">(8 / 8)</tspan></tspan>
+
+    <tspan x="20" dy="40">computing <tspan class="_93">8</tspan> full hashes… <tspan class="_2">(4 threads)</tspan></tspan>
+    <tspan x="20" dy="20"><tspan class="_92">██████████████████████████████████████████████████</tspan> <tspan class="_92">100%</tspan> <tspan class="_2">(8 / 8)</tspan></tspan>
+
+    <tspan x="20" dy="40"><tspan class="_96">b982b5aaf2aba30e</tspan> <tspan class="_2">·</tspan> <tspan class="_93">4</tspan> files <tspan class="_2">·</tspan> <tspan class="_93">15.0 MiB</tspan> each <tspan class="_2">·</tspan> <tspan class="_93">45.0 MiB</tspan> duplicated</tspan>
+    <tspan x="20" dy="20">movies/vacation-2018.mp4</tspan>
+    <tspan x="20" dy="20"><tspan class="_2">backup/old/vacation-2018.mp4</tspan></tspan>
+    <tspan x="20" dy="20"><tspan class="_2">archive/2018/vacation-2018.mp4</tspan></tspan>
+    <tspan x="20" dy="20"><tspan class="_2">and 1 more…</tspan></tspan>
+
+    <tspan x="20" dy="40"><tspan class="_96">bc03fe831346d06d</tspan> <tspan class="_2">·</tspan> <tspan class="_93">2</tspan> files <tspan class="_2">·</tspan> <tspan class="_93">50.0 MiB</tspan> each <tspan class="_2">·</tspan> <tspan class="_93">50.0 MiB</tspan> duplicated</tspan>
+    <tspan x="20" dy="20">iso/ubuntu-22.04-desktop-amd64.iso</tspan>
+    <tspan x="20" dy="20"><tspan class="_2">downloads/ubuntu-22.04-desktop-amd64.iso</tspan></tspan>
+
+    <tspan x="20" dy="40"><tspan class="_2">┌────────────┬─────────────────────────────────┬────────────────┐</tspan></tspan>
+    <tspan x="20" dy="20"><tspan class="_2">│</tspan>   total    <tspan class="_2">│</tspan>  unique and potentially unique  <tspan class="_2">│</tspan>   duplicates   <tspan class="_2">│</tspan></tspan>
+    <tspan x="20" dy="20"><tspan class="_2">├────────────┼────────────────┬────────────────┼────────────────┤</tspan></tspan>
+    <tspan x="20" dy="20"><tspan class="_2">│</tspan>   <tspan class="_96">31 files</tspan> <tspan class="_2">│</tspan>   <tspan class="_92">25 files</tspan> <tspan class="_2">81%</tspan> <tspan class="_2">│</tspan>    <tspan class="_93">2 files</tspan>  <tspan class="_2">6%</tspan> <tspan class="_2">│</tspan>    <tspan class="_91">4 files</tspan> <tspan class="_2">13%</tspan> <tspan class="_2">│</tspan></tspan>
+    <tspan x="20" dy="20"><tspan class="_2">│</tspan>  <tspan class="_96">315 MiB  </tspan> <tspan class="_2">│</tspan>  <tspan class="_92">155 MiB  </tspan> <tspan class="_2">49%</tspan> <tspan class="_2">│</tspan> <tspan class="_93">65.0 MiB  </tspan> <tspan class="_2">21%</tspan> <tspan class="_2">│</tspan> <tspan class="_91">95.0 MiB  </tspan> <tspan class="_2">30%</tspan> <tspan class="_2">│</tspan></tspan>
+    <tspan x="20" dy="20"><tspan class="_2">└────────────┴────────────────┴────────────────┴────────────────┘</tspan></tspan>
+
+    <tspan x="20" dy="40"><tspan class="_2">skipped 2 files (15.0 MiB)</tspan></tspan>
+    <tspan x="20" dy="20"><tspan class="_2">computed 29 prefix hashes in 484 µs (59907 h/s · 234 MiB/s · 116 KiB)</tspan></tspan>
+    <tspan x="20" dy="20"><tspan class="_2">computed 8 suffix hashes in 240 µs (33319 h/s · 130 MiB/s · 32.0 KiB)</tspan></tspan>
+    <tspan x="20" dy="20"><tspan class="_2">computed 8 full hashes in 14.2 ms (563 h/s · 13.7 GiB/s · 200 MiB)</tspan></tspan>
+  </text>
+
+  <style>
+    :root {
+      --bg: oklch(0.985 0 0); /* zinc-50 */
+      --fg: oklch(0.37 0.013 285.805); /* zinc-700 */
+      --border: oklch(0.92 0.004 286.32); /* zinc-200 */
+      --dim: oklch(0.705 0.015 286.067); /* zinc-400 */
+      --black: oklch(0.141 0.005 285.823); /* zinc-950 */
+      --red: oklch(0.577 0.245 27.325); /* red-600 */
+      --green: oklch(0.627 0.194 149.214); /* green-600 */
+      --yellow: oklch(0.681 0.162 75.834); /* yellow-600 */
+      --blue: oklch(0.546 0.245 262.881); /* blue-600 */
+      --magenta: oklch(0.591 0.293 322.896); /* fuchsia-600 */
+      --cyan: oklch(0.609 0.126 221.723); /* cyan-600 */
+      --white: oklch(0.967 0.001 286.375); /* zinc-100 */
+      --bright-black: oklch(0.552 0.016 285.938); /* zinc-500 */
+      --bright-red: oklch(0.637 0.237 25.331); /* red-500 */
+      --bright-green: oklch(0.723 0.219 149.579); /* green-500 */
+      --bright-yellow: oklch(0.795 0.184 86.047); /* yellow-500 */
+      --bright-blue: oklch(0.623 0.214 259.815); /* blue-500 */
+      --bright-magenta: oklch(0.667 0.295 322.15); /* fuchsia-500 */
+      --bright-cyan: oklch(0.715 0.143 215.221); /* cyan-500 */
+      --bright-white: #ffffff; /* white */
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: oklch(0.21 0.006 285.885); /* zinc-900 */
+        --fg: oklch(0.871 0.006 286.286); /* zinc-300 */
+        --border: oklch(0.274 0.006 286.033); /* zinc-800 */
+        --dim: oklch(0.552 0.016 285.938); /* zinc-500 */
+        --black: oklch(0.141 0.005 285.823); /* zinc-950 */
+        --red: oklch(0.704 0.191 22.216); /* red-400 */
+        --green: oklch(0.792 0.209 151.711); /* green-400 */
+        --yellow: oklch(0.852 0.199 91.936); /* yellow-400 */
+        --blue: oklch(0.707 0.165 254.624); /* blue-400 */
+        --magenta: oklch(0.74 0.238 322.16); /* fuchsia-400 */
+        --cyan: oklch(0.789 0.154 211.53); /* cyan-400 */
+        --white: oklch(0.92 0.004 286.32); /* zinc-200 */
+        --bright-black: oklch(0.705 0.015 286.067); /* zinc-400 */
+        --bright-red: oklch(0.808 0.114 19.571); /* red-300 */
+        --bright-green: oklch(0.871 0.15 154.449); /* green-300 */
+        --bright-yellow: oklch(0.905 0.182 98.111); /* yellow-300 */
+        --bright-blue: oklch(0.809 0.105 251.813); /* blue-300 */
+        --bright-magenta: oklch(0.833 0.145 321.434); /* fuchsia-300 */
+        --bright-cyan: oklch(0.865 0.127 207.078); /* cyan-300 */
+        --bright-white: #ffffff; /* white */
+      }
+    }
+
+    .bg { fill: var(--bg); }
+    .fg { fill: var(--fg); }
+
+    ._1 { font-weight: bold; }
+    ._2 { fill: var(--dim); }
+    ._3 { font-style: italic; }
+    ._4 { text-decoration: underline; }
+
+    ._30 { fill: var(--black);   } ._90 { fill: var(--bright-black);   }
+    ._31 { fill: var(--red);     } ._91 { fill: var(--bright-red);     }
+    ._32 { fill: var(--green);   } ._92 { fill: var(--bright-green);   }
+    ._33 { fill: var(--yellow);  } ._93 { fill: var(--bright-yellow);  }
+    ._34 { fill: var(--blue);    } ._94 { fill: var(--bright-blue);    }
+    ._35 { fill: var(--magenta); } ._95 { fill: var(--bright-magenta); }
+    ._36 { fill: var(--cyan);    } ._96 { fill: var(--bright-cyan);    }
+    ._37 { fill: var(--white);   } ._97 { fill: var(--bright-white);   }
+
+    .mono { font: 16px monospace; }
+  </style>
+</svg>
